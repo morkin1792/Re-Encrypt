@@ -3,73 +3,120 @@ package burp;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.GridLayout;
-import java.util.Arrays;
-import java.util.List;
-
+import java.awt.Font;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 public class TabScreen implements ITab {	
 	
-	private JTextField preCommand, postCommand, prePattern, postPattern;
-	private static final String replaceMarker = "§§";
+	private JTextField decodeCommand, encodeCommand, requestPattern, responsePattern;
+	private Config config;
+	private static final String replaceMarker = "{}";
 
-	public TabScreen() {
-		prePattern = new JTextField();
-		prePattern.setText("data\":\"");
-		postPattern = new JTextField();
-		postPattern.setText("\"}");
-		preCommand = new JTextField();
-		preCommand.setText("node /home/test/crypt.js d " + replaceMarker);
-		postCommand = new JTextField();
-		postCommand.setText("node /home/test/crypt.js e " + replaceMarker);
+	public TabScreen(IBurpExtenderCallbacks callbacks) {
+		LoadConfig(callbacks);
+		CreateTextFields(callbacks);
 	}
 
-	public String[] getPreCommand(String payload) {
-		return getCommand(preCommand.getText(), payload);
-	}
-
-	public String[] getPostCommand(String payload) {
-		return getCommand(postCommand.getText(), payload);
-	}
-
-	private String[] getCommand(String command, String payload) {
-		List<String> cmd = Arrays.asList(command.split(" "));
-		for (int i=0; i<cmd.size();i++) {
-			if (cmd.get(i).equals(replaceMarker)) {
-				cmd.set(i, payload);
-				break;
-			}
+	public void LoadConfig(IBurpExtenderCallbacks callbacks) {
+		config = new Config("data\":\"(.*?)\"", "data\":\"(.*?)\"", "node /home/user/crypt.js d " + replaceMarker, "node /home/user/crypt.js e " + replaceMarker);
+		
+		String configSerialized = callbacks.loadExtensionSetting("config");
+		if (configSerialized != null) {
+			try {
+				config = (Config) Utils.parse(configSerialized);
+			} catch (Exception exception) {}
 		}
-		String[] array = new String[cmd.size()];
-		cmd.toArray(array);
-		return array;
 	}
 
-	public String getPrePattern() {
-		return prePattern.getText();
+	public void CreateTextFields(IBurpExtenderCallbacks callbacks) {
+		DocumentListener saveListener = new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				updateFieldState();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				updateFieldState();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				updateFieldState();
+			}
+
+			protected void updateFieldState() {
+				config.decodeCommand = decodeCommand.getText();
+				config.encodeCommand = encodeCommand.getText();
+				config.requestPattern = requestPattern.getText();
+				config.responsePattern = responsePattern.getText();
+				try {
+					callbacks.saveExtensionSetting("config", Utils.stringify(config));
+				} catch (Exception e) {}
+			}
+		};
+		requestPattern = CreateTextField(config.requestPattern, saveListener);
+		responsePattern = CreateTextField(config.responsePattern, saveListener);
+		decodeCommand = CreateTextField(config.decodeCommand, saveListener);
+		encodeCommand = CreateTextField(config.encodeCommand, saveListener);
+		
 	}
 
-	public String getPostPattern() {
-		return postPattern.getText();
+	public JTextField CreateTextField(String text, DocumentListener saveListener) {
+		var textField = new JTextField();
+		textField.setText(text);
+		textField.getDocument().addDocumentListener(saveListener);
+		return textField;
+	}
+
+	public String[] getDecodeCommand(String payload) {
+		return Utils.getCommand(decodeCommand.getText(), replaceMarker, payload);
+	}
+
+	public String[] getEncodeCommand(String payload) {
+		return Utils.getCommand(encodeCommand.getText(), replaceMarker, payload);
+	}
+
+	public String getPattern(boolean isRequest) {
+		return isRequest ? requestPattern.getText() : responsePattern.getText();
 	}
 
 	@Override
 	public Component getUiComponent() {
 		JPanel painelBorderLayout = new JPanel(new BorderLayout());
 		
-        JPanel panel = new JPanel(new GridLayout(6, 2));
+        JPanel panel = new JPanel(new GridLayout(10, 2));
 		
-		panel.add(new JLabel("Pre Text"));
-		panel.add(new JLabel("Post Text"));
-		panel.add(prePattern);
-		panel.add(postPattern);
+		JLabel jlabel = new JLabel();
 
-		panel.add(new JLabel("Dec Command"));
-		panel.add(new JLabel("Enc Command"));
-		panel.add(preCommand);
-		panel.add(postCommand);
+		jlabel = new JLabel();
+		jlabel.setFont(new Font("Hack", Font.BOLD, 13));
+		jlabel.setText("  Pattern");
+		panel.add(jlabel);
+		panel.add(new JLabel());
+
+		panel.add(new JLabel("  Request Regex"));
+		panel.add(new JLabel("Response Regex"));
+		panel.add(requestPattern);
+		panel.add(responsePattern);
+		
+		panel.add(new JLabel());
+		panel.add(new JLabel());
+
+		jlabel = new JLabel();
+		jlabel.setFont(new Font("Hack", Font.BOLD, 13));
+		jlabel.setText("  Command");
+		panel.add(jlabel);
+		panel.add(new JLabel());
+
+		panel.add(new JLabel("  Decode / Decrypt Command"));
+		panel.add(new JLabel("Encode / Encrypt Command"));
+		panel.add(decodeCommand);
+		panel.add(encodeCommand);
 				
 		painelBorderLayout.add(panel, BorderLayout.NORTH);
 		
@@ -78,6 +125,6 @@ public class TabScreen implements ITab {
 	
 	@Override
 	public String getTabCaption() {
-		return "RePost";
+		return BurpExtender.name;
 	}
 }

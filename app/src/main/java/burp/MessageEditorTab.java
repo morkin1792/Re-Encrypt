@@ -1,109 +1,115 @@
 package burp;
 
 import java.awt.Component;
-import java.awt.BorderLayout;
 import java.util.Arrays;
-
-import javax.swing.JPanel;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.io.PrintWriter;
 
 public class MessageEditorTab implements IMessageEditorTab {
-    private ITextEditor txtEditor;
-    private byte[] currentMessage;
+    private ITextEditor editor;
+    private byte[] savedRequest;
     private TabScreen tabScreen;
-    private IExtensionHelpers helpers;
-    
-    public MessageEditorTab(boolean editable, TabScreen tabScreen, IBurpExtenderCallbacks callbacks)
+    private PrintWriter stdout;
+    private boolean isRequest;
+
+    public MessageEditorTab(IMessageEditorController controller, boolean editable, TabScreen tabScreen, IBurpExtenderCallbacks callbacks)
     {
+        isRequest = true;
         this.tabScreen = tabScreen;
-        this.helpers = callbacks.getHelpers();
-        txtEditor = callbacks.createTextEditor();
-        txtEditor.setEditable(editable);
+        this.stdout = new PrintWriter(callbacks.getStdout(), true);
+        editor = callbacks.createTextEditor();
+        editor.setEditable(editable);
     }
 
     @Override
     public String getTabCaption()
     {
-        return "RePost";
+        return BurpExtender.name;
     }
 
     @Override
     public Component getUiComponent() {
-        JPanel center = new JPanel(new BorderLayout());
-        center.add(txtEditor.getComponent());
-        return center;
+        return editor.getComponent();
     }
 
     @Override
     public boolean isEnabled(byte[] content, boolean isRequest) {
-        // enable this tab for requests containing a data parameter
-        return true;
+        try {
+            getPatternIndexes(content, isRequest);
+            return true;
+        } catch (Exception exception) {  }
+        return false;
     }
 
-    public int[] getPatternIndexes(byte[] content) throws Exception{
-        String beginPattern = tabScreen.getPrePattern();
-        String endPattern = tabScreen.getPostPattern();
+    public int[] getPatternIndexes(byte[] content, boolean isRequest) throws Exception {
+        return searchPattern(tabScreen.getPattern(isRequest), content);
+    }
 
-        int beginIndex = helpers.indexOf(content, beginPattern.getBytes(), false, 0, content.length) + beginPattern.length();
-        int endIndex = helpers.indexOf(content, endPattern.getBytes(), false, 0, content.length);
-        if (beginIndex < 0 || endIndex < 0) {
-            throw new Exception("getPatternIndexes: pattern not found");
+    public int[] searchPattern(String regex, byte[] text) throws Exception {
+        Matcher matcher = Pattern.compile(regex).matcher(new String(text));
+        if (matcher.find()) {
+            return new int[] { matcher.start(1), matcher.end(1) };
         }
-        return new int[]{beginIndex, endIndex};
+        throw new Exception("searchRegexPattern: pattern not found");
     }
 
     @Override
     public void setMessage(byte[] content, boolean isRequest) {
-        if (content == null) {
-            txtEditor.setText(null);
-            txtEditor.setEditable(false);
-        }
-                        
+        if (content == null) return;
+
+        this.isRequest = isRequest;
+        savedRequest = content;
         try {
-            int[] indexes = getPatternIndexes(content);
+            int[] indexes = getPatternIndexes(content, isRequest);
             int beginIndex = indexes[0];
             int endIndex = indexes[1];
-            
             String cipherText = new String(content).substring(beginIndex, endIndex);
-            String[] command = tabScreen.getPreCommand(cipherText);
-            
+            String[] command = tabScreen.getDecodeCommand(cipherText);
             String plainText = BurpExtender.execCommand(command, true);
-            // System.out.println("plainText: " + plainText);
-            txtEditor.setText(plainText.getBytes());
-            currentMessage = content;
+            editor.setText(plainText.getBytes());
         } catch (Exception e) {
+            editor.setText(e.toString().getBytes());
+            Utils.Log(stdout, e.toString());
         }
+    }
+
+    public byte[] patchRequest(byte[] rawContent, int beginIndex, int endIndex, byte[] contentPayload) {
+        byte[] preContent = Arrays.copyOfRange(rawContent, 0, beginIndex);
+        byte[] postContent = Arrays.copyOfRange(rawContent, endIndex, rawContent.length);
+
+        byte[] newRequest = new byte[preContent.length + contentPayload.length + postContent.length];
+        System.arraycopy(preContent, 0, newRequest, 0, preContent.length);
+        System.arraycopy(contentPayload, 0, newRequest, preContent.length, contentPayload.length);
+        System.arraycopy(postContent, 0, newRequest, preContent.length + contentPayload.length, postContent.length);
+        return newRequest;
     }
     
     @Override
     public byte[] getMessage() {
-        String plainText = new String(txtEditor.getText());
-        String[] command = tabScreen.getPostCommand(plainText);
-        String cipherText = BurpExtender.execCommand(command, true);
-        // System.out.println("cipherText: " + cipherText);
+        String plainText = new String(editor.getText());
+        String[] command = tabScreen.getEncodeCommand(plainText);
         try {
-            int[] indexes = getPatternIndexes(currentMessage);
+            String cipherText = BurpExtender.execCommand(command, true);
+            int[] indexes = getPatternIndexes(savedRequest, this.isRequest);
             int beginIndex = indexes[0];
             int endIndex = indexes[1];
-            byte[] preContent = Arrays.copyOfRange(currentMessage, 0, beginIndex);
-            byte[] postContent = Arrays.copyOfRange(currentMessage, endIndex, currentMessage.length);
-            
-            return (new String(preContent) + cipherText + new String(postContent)).getBytes();
-
-        } catch (Exception e) {}
-
-        
-        return currentMessage;
+            return patchRequest(savedRequest, beginIndex, endIndex, cipherText.getBytes());
+        } catch (Exception e) {
+            Utils.Log(stdout, e.toString());
+        }
+        return savedRequest;
     }
 
     @Override
     public boolean isModified() {
-        return txtEditor.isTextModified();
+        return editor.isTextModified();
     }
 
     @Override
     public byte[] getSelectedData()
     {
-        return txtEditor.getSelectedText();
+        return editor.getSelectedText();
     }
     
     

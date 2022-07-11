@@ -1,10 +1,10 @@
 package burp;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.Scanner;
 
 public class BurpExtender implements IBurpExtender, IMessageEditorTabFactory {
+    public static final String name = "RePost";
     private IBurpExtenderCallbacks callbacks;
     private TabScreen tabScreen;
     
@@ -12,10 +12,10 @@ public class BurpExtender implements IBurpExtender, IMessageEditorTabFactory {
     public void registerExtenderCallbacks(IBurpExtenderCallbacks callbacks) {
         this.callbacks = callbacks;
        
-        callbacks.setExtensionName("RePost");
+        callbacks.setExtensionName(name);
 
         callbacks.registerMessageEditorTabFactory(this);
-        tabScreen = new TabScreen();
+        tabScreen = new TabScreen(callbacks);
         callbacks.addSuiteTab(tabScreen);
 
         
@@ -25,16 +25,18 @@ public class BurpExtender implements IBurpExtender, IMessageEditorTabFactory {
 
     @Override
     public IMessageEditorTab createNewInstance(IMessageEditorController controller, boolean editable) {
-        return new MessageEditorTab(editable, tabScreen, callbacks);
+        return new MessageEditorTab(controller, editable, tabScreen, callbacks);
     }
 
-    public static String execCommand(String[] cmd, boolean removeLastLF) {
+    public static String execCommand(String[] command, boolean removeLastLF) throws Exception {
         String result = null;
-        try (InputStream inputStream = Runtime.getRuntime().exec(cmd).getInputStream();
-                Scanner s = new Scanner(inputStream).useDelimiter("\\A")) {
-            result = s.hasNext() ? s.next() : null;
-        } catch (IOException e) {
-            // System.out.println("error in execCommand: " + e);
+        
+        Process process = Runtime.getRuntime().exec(command);
+        InputStream inputStream = process.getInputStream();
+        Scanner scanner = new Scanner(inputStream).useDelimiter("\\A");
+        result = scanner.hasNext() ? scanner.next() : null;
+        if (result == null) {
+            throw new Exception("failed running: " + String.join(" ", command));
         }
         //if ends with \n removes it
         if (removeLastLF && result.charAt(result.length() - 1) == '\n')

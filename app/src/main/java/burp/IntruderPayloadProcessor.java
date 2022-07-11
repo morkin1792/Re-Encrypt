@@ -9,12 +9,18 @@ public class IntruderPayloadProcessor implements IIntruderPayloadProcessor {
 
     @Override
     public String getProcessorName() {
-        return "RePost";
+        return BurpExtender.name;
     }
 
     @Override
     public byte[] processPayload(byte[] currentPayload, byte[] originalPayload, byte[] baseValue) {
-        String cipherText = BurpExtender.execCommand(tabScreen.getPostCommand(new String(currentPayload)), true);
+        String cipherText = "";
+        try {
+            String[] command = tabScreen.getEncodeCommand(new String(currentPayload));
+            cipherText = BurpExtender.execCommand(command, true);
+        } catch (Exception e) {
+            cipherText = e.getMessage();
+        }
         return cipherText.getBytes();
     }
     
