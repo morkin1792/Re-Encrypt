@@ -16,8 +16,8 @@ public class IntruderPayloadProcessor implements IIntruderPayloadProcessor {
     public byte[] processPayload(byte[] currentPayload, byte[] originalPayload, byte[] baseValue) {
         String cipherText = "";
         try {
-            String[] command = tabScreen.getEncodeCommand(new String(currentPayload));
-            cipherText = BurpExtender.execCommand(command, true);
+            String[] command = Utils.patchCommand(tabScreen.getEncodeCommand(), new String(currentPayload));
+            cipherText = Utils.executeCommand(command, true);
         } catch (Exception e) {
             cipherText = e.getMessage();
         }

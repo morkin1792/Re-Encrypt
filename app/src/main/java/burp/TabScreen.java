@@ -14,22 +14,10 @@ public class TabScreen implements ITab {
 	
 	private JTextField decodeCommand, encodeCommand, requestPattern, responsePattern;
 	private Config config;
-	private static final String replaceMarker = "{}";
-
-	public TabScreen(IBurpExtenderCallbacks callbacks) {
-		LoadConfig(callbacks);
+	
+	public TabScreen(IBurpExtenderCallbacks callbacks, Config config) {
+		this.config = config;
 		CreateTextFields(callbacks);
-	}
-
-	public void LoadConfig(IBurpExtenderCallbacks callbacks) {
-		config = new Config("data\":\"(.*?)\"", "data\":\"(.*?)\"", "node /home/user/crypt.js d " + replaceMarker, "node /home/user/crypt.js e " + replaceMarker);
-		
-		String configSerialized = callbacks.loadExtensionSetting("config");
-		if (configSerialized != null) {
-			try {
-				config = (Config) Utils.parse(configSerialized);
-			} catch (Exception exception) {}
-		}
 	}
 
 	public void CreateTextFields(IBurpExtenderCallbacks callbacks) {
@@ -73,28 +61,31 @@ public class TabScreen implements ITab {
 		return textField;
 	}
 
-	public String[] getDecodeCommand(String payload) {
-		return Utils.getCommand(decodeCommand.getText(), replaceMarker, payload);
+	public String getDecodeCommand() {
+		return decodeCommand.getText();
 	}
 
-	public String[] getEncodeCommand(String payload) {
-		return Utils.getCommand(encodeCommand.getText(), replaceMarker, payload);
+	public String getEncodeCommand() {
+		return encodeCommand.getText();
 	}
 
 	public String getPattern(boolean isRequest) {
 		return isRequest ? requestPattern.getText() : responsePattern.getText();
 	}
 
+	public boolean shouldSaveDecodeCommands() {
+		return true;
+	}
+
 	@Override
 	public Component getUiComponent() {
 		JPanel painelBorderLayout = new JPanel(new BorderLayout());
-		
         JPanel panel = new JPanel(new GridLayout(10, 2));
-		
+		Font hackFont = new Font("Hack", Font.BOLD, 13);
 		JLabel jlabel = new JLabel();
 
 		jlabel = new JLabel();
-		jlabel.setFont(new Font("Hack", Font.BOLD, 13));
+		jlabel.setFont(hackFont);
 		jlabel.setText("  Pattern");
 		panel.add(jlabel);
 		panel.add(new JLabel());
@@ -108,7 +99,7 @@ public class TabScreen implements ITab {
 		panel.add(new JLabel());
 
 		jlabel = new JLabel();
-		jlabel.setFont(new Font("Hack", Font.BOLD, 13));
+		jlabel.setFont(hackFont);
 		jlabel.setText("  Command");
 		panel.add(jlabel);
 		panel.add(new JLabel());

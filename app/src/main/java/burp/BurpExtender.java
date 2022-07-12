@@ -1,21 +1,31 @@
 package burp;
 
-import java.io.InputStream;
-import java.util.Scanner;
-
 public class BurpExtender implements IBurpExtender, IMessageEditorTabFactory {
-    public static final String name = "RePost";
+    public static final String name = "Re:Encrypt";
     private IBurpExtenderCallbacks callbacks;
     private TabScreen tabScreen;
+    private Config config;
+
+    public void loadConfig() {
+		config = new Config();
+
+		String configSerialized = callbacks.loadExtensionSetting("config");
+		if (configSerialized != null) {
+			try {
+				config = (Config) Utils.parse(configSerialized);
+			} catch (Exception exception) {}
+		}
+	}
     
     @Override
     public void registerExtenderCallbacks(IBurpExtenderCallbacks callbacks) {
         this.callbacks = callbacks;
-       
+        loadConfig();
+
         callbacks.setExtensionName(name);
 
         callbacks.registerMessageEditorTabFactory(this);
-        tabScreen = new TabScreen(callbacks);
+        tabScreen = new TabScreen(callbacks, config);
         callbacks.addSuiteTab(tabScreen);
 
         
@@ -25,22 +35,7 @@ public class BurpExtender implements IBurpExtender, IMessageEditorTabFactory {
 
     @Override
     public IMessageEditorTab createNewInstance(IMessageEditorController controller, boolean editable) {
-        return new MessageEditorTab(controller, editable, tabScreen, callbacks);
+        return new MessageEditorTab(controller, editable, tabScreen, callbacks, config);
     }
 
-    public static String execCommand(String[] command, boolean removeLastLF) throws Exception {
-        String result = null;
-        
-        Process process = Runtime.getRuntime().exec(command);
-        InputStream inputStream = process.getInputStream();
-        Scanner scanner = new Scanner(inputStream).useDelimiter("\\A");
-        result = scanner.hasNext() ? scanner.next() : null;
-        if (result == null) {
-            throw new Exception("failed running: " + String.join(" ", command));
-        }
-        //if ends with \n removes it
-        if (removeLastLF && result.charAt(result.length() - 1) == '\n')
-            result = result.substring(0, result.length() - 1);
-        return result;
-    }
 }
