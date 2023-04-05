@@ -3,7 +3,7 @@
  *
  * This generated file contains a sample Java application project to get you started.
  * For more details take a look at the 'Building Java & JVM projects' chapter in the Gradle
- * User Manual available at https://docs.gradle.org/7.2/userguide/building_java_projects.html
+ * User Manual available at https://docs.gradle.org/8.0.2/userguide/building_java_projects.html
  */
 
 plugins {
@@ -17,18 +17,24 @@ repositories {
 }
 
 dependencies {
-    implementation("net.portswigger.burp.extender:burp-extender-api:2.1")
+    // Use JUnit Jupiter for testing.
+    // testImplementation("org.junit.jupiter:junit-jupiter:5.8.2")
 
     // This dependency is used by the application.
-    implementation("com.google.guava:guava:30.1.1-jre")
+    implementation("com.google.guava:guava:31.0.1-jre")
+    implementation("net.portswigger.burp.extensions:montoya-api:+")
 }
-
-val main = "burp.BurpExtender"
+val main = "reencrypt.App"
 
 application {
     // Define the main class for the application.
     mainClass.set(main)
 }
+/*
+tasks.named<Test>("test") {
+    // Use JUnit Platform for unit tests.
+    useJUnitPlatform()
+}*/
 
 tasks.withType<Jar> {
     manifest {
