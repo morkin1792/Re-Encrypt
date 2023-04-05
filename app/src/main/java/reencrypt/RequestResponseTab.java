@@ -3,7 +3,6 @@ package reencrypt;
 import burp.api.montoya.ui.Selection;
 
 import java.awt.Component;
-import java.awt.Dimension;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
@@ -22,7 +21,6 @@ public class RequestResponseTab implements IMessageBoard {
     private JTextArea errorArea;
     private JScrollPane scrollPane;
     private byte[] cachedRequestContent, cachedEditorContent;
-    // private PrintWriter stdout;
     private boolean isRequest, readOnly;
     private String errorMessage;
     private Color colorMessage;
@@ -32,7 +30,6 @@ public class RequestResponseTab implements IMessageBoard {
     {
         this.isRequest = true;
         // this.decodeException = false;
-        // this.stdout = new PrintWriter(callbacks.getStdout(), true);
         this.editor = editor;
         this.reEncrypt = reEncrypt;
         this.readOnly = readOnly;
@@ -54,7 +51,6 @@ public class RequestResponseTab implements IMessageBoard {
         errorArea.setFocusable(true);
         errorArea.setEditable(false);
         this.scrollPane = new JScrollPane(errorArea);
-        scrollPane.setMaximumSize(new Dimension(10, 10));
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
         panel.add(scrollPane, BorderLayout.NORTH);
         panel.add(editor.uiComponent(), BorderLayout.CENTER);
@@ -95,12 +91,10 @@ public class RequestResponseTab implements IMessageBoard {
             editor.setBytes(this.cachedEditorContent);
             
         } catch (Exception e) {
-            // this.decodeException = true;
             if (readOnly) {
                 editor.setBytes("".getBytes());
             }
             showMessage(e.getMessage());
-            // Utils.log(stdout, e.toString());
         }
     }
     
@@ -119,7 +113,6 @@ public class RequestResponseTab implements IMessageBoard {
         } catch (Exception e) {
             System.out.println(e.getMessage());
             showMessage(e.toString());
-            // Utils.log(stdout, e.toString());
         }
         return cachedRequestContent;
     }
