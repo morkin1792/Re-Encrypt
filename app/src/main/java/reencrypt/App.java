@@ -16,7 +16,7 @@ public class App implements BurpExtension {
 
     public void initialize(MontoyaApi api) {
         
-        var config = new Config();
+        var config = new Config(api.persistence());
         var reEncrypt = new ReEncrypt(config);
         
         api.userInterface().registerSuiteTab(name, new ExtensionTab(config).uiComponent());

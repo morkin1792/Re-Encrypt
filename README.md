@@ -74,14 +74,10 @@ When a request is processed successly, the original command-line config is saved
 
 ## TODO
 
-- url filter
 - stdin support
-- new methods to save the hashmap
-- replace affecting plaintext
-- search
-- site map using cached command without alerting this
-- limit error message
+- replace for plaintexts
+- ?search in plaintext
 
 ## credits
 
-- thanks `Jodson` for starting this extension 
+- thanks to `Jodson` for starting this extension 

@@ -25,17 +25,12 @@ public class ProxyHandler implements ProxyRequestHandler {
     public ProxyRequestToBeSentAction handleRequestToBeSent(InterceptedRequest interceptedRequest) {
         try {
             if (reEncrypt.shouldPatchProxyRequest(interceptedRequest.url())) {
-                System.out.print("it will patch: ");
-                System.out.println(interceptedRequest.url() + " " + interceptedRequest.httpVersion());
-                
                 byte[] requestContent = interceptedRequest.toByteArray().getBytes();
                 String plainText = reEncrypt.searchAndDecrypt(true, requestContent, null);
-                System.out.println(interceptedRequest.url() + "\n" + plainText);
-    
+                
                 byte[] patchedContent = reEncrypt.encryptAndPatch(requestContent, true, plainText);
                 HttpRequest newRequest = HttpRequest.httpRequest(interceptedRequest.httpService(), ByteArray.byteArray(patchedContent));
-                System.out.print("after patch: ");
-                System.out.println(interceptedRequest.url() + " " + interceptedRequest.httpVersion());
+                
                 return ProxyRequestToBeSentAction.continueWith(newRequest, 
                     Annotations.annotations().withNotes("Modified by " + App.name));
             }

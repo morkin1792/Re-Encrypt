@@ -1,5 +1,6 @@
 package reencrypt;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.regex.Matcher;
@@ -58,24 +59,20 @@ public class ReEncrypt {
 
     ShellCommand getDecodeCommand(String cipherText, IMessageBoard board) throws IOException {
         var rawCommand = config.getDecodeCommand();
-        if (config.shouldSaveCommands()) {
-            String historyCommand = config.loadSaveCommand(cipherText, rawCommand);
-            
-            if (!historyCommand.equals(rawCommand)) {
-                if (board != null) {
-                    board.showMessage("[*] It was decrypted/decoded with a cached command: \n" + historyCommand);
-                }
-                rawCommand = historyCommand;
-            
-            } else if (board != null) {
-                board.showMessage("");
+        String historyCommand = config.getCommand(cipherText, rawCommand);
+        
+        if (!historyCommand.equals(rawCommand)) {
+            if (board != null) {
+                board.showMessage("[+] It was decrypted/decoded with a saved command: \n" + historyCommand, Color.decode("#23d18b"));
             }
+            rawCommand = historyCommand;
+        } else if (board != null) {
+            board.showMessage("");
         }
         return new ShellCommand(rawCommand, cipherText);
     }
     
-    void eraseCommandHistory(String cipherText) {
-        if (!config.shouldSaveCommands()) return;
+    void eraseCommand(String cipherText) {
         config.eraseCommand(cipherText);
     }
 
@@ -100,10 +97,10 @@ public class ReEncrypt {
         try {
             ShellCommand command = getDecodeCommand(cipherText, board);
             String plainText = command.execute(true);
-            // if exception eraseCommandHistory and continue exception
             return plainText;
         } catch (Exception exception) {
-            eraseCommandHistory(cipherText);
+            // if exception, erase command and continue exception
+            eraseCommand(cipherText);
             throw exception;
         }
     }

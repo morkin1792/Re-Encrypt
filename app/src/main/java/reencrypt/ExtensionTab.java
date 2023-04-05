@@ -15,7 +15,7 @@ import javax.swing.event.DocumentListener;
 public class ExtensionTab {	
 	
 	private JTextField decodeCommand, encodeCommand, requestPattern, responsePattern, targetPattern;
-	private JCheckBox autoPatch;
+	private JCheckBox autoPatch, saveCommands;
 	private Config config;
 	
 	public ExtensionTab(Config config) {
@@ -51,11 +51,16 @@ public class ExtensionTab {
 		targetPattern = createTextField(config.getTargetPattern(), saveListener);
 		autoPatch = new JCheckBox("Auto reencrypt proxy requests", config.shouldPatchProxy());
 		targetPattern.setEnabled(autoPatch.isSelected());
-
 		autoPatch.addItemListener(state -> {
 			boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
 			config.updatePatchProxy(isSelected);
 			targetPattern.setEnabled(isSelected);
+		});
+
+		saveCommands = new JCheckBox("Save the decode / decrypt command used in each request", config.shouldSaveCommands());
+		saveCommands.addItemListener(state -> {
+			boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+			config.updateSaveCommands(isSelected);
 		});
 
 
@@ -98,6 +103,8 @@ public class ExtensionTab {
 		panel.add(new JLabel("Encode / Encrypt Command"));
 		panel.add(decodeCommand);
 		panel.add(encodeCommand);
+		panel.add(saveCommands);
+		panel.add(new JLabel());
 
 		panel.add(new JLabel());
 		panel.add(new JLabel());

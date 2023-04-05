@@ -5,6 +5,7 @@ import burp.api.montoya.ui.Selection;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Font;
 import java.util.Optional;
 
@@ -22,19 +23,20 @@ public class RequestResponseTab implements IMessageBoard {
     private JScrollPane scrollPane;
     private byte[] cachedRequestContent, cachedEditorContent;
     // private PrintWriter stdout;
-    private boolean isRequest, readOnly, firstView, decodeException;
+    private boolean isRequest, readOnly;
     private String errorMessage;
+    private Color colorMessage;
     private ReEncrypt reEncrypt;
     
     public RequestResponseTab(RequestResponseEditor editor, ReEncrypt reEncrypt, boolean readOnly)
     {
         this.isRequest = true;
-        this.decodeException = false;
+        // this.decodeException = false;
         // this.stdout = new PrintWriter(callbacks.getStdout(), true);
         this.editor = editor;
         this.reEncrypt = reEncrypt;
         this.readOnly = readOnly;
-        this.firstView = true;
+        this.cachedEditorContent = new byte[]{};
         this.errorMessage = "";
     }
 
@@ -56,14 +58,19 @@ public class RequestResponseTab implements IMessageBoard {
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
         panel.add(scrollPane, BorderLayout.NORTH);
         panel.add(editor.uiComponent(), BorderLayout.CENTER);
-        showMessage(this.errorMessage);
+        showMessage(this.errorMessage, this.colorMessage);
         return panel;
     }
 
     public void showMessage(String message) {
+        showMessage(message, Color.decode("#f14c4c"));
+    }
+
+    public void showMessage(String message, Color color) {
         this.errorMessage = message;
-        System.out.println(message);
+        this.colorMessage = color;
         errorArea.setText(message);
+        errorArea.setForeground(color);
         errorArea.setVisible(message.length() > 0);
         scrollPane.setVisible(errorArea.isVisible());
     }
@@ -86,26 +93,20 @@ public class RequestResponseTab implements IMessageBoard {
             String plainText = reEncrypt.searchAndDecrypt(isRequest, content, this);
             this.cachedEditorContent = plainText.getBytes("Windows-1252");
             editor.setBytes(this.cachedEditorContent);
+            
         } catch (Exception e) {
-            this.decodeException = true;
-            editor.setBytes("".getBytes());
+            // this.decodeException = true;
+            if (readOnly) {
+                editor.setBytes("".getBytes());
+            }
             showMessage(e.getMessage());
             // Utils.log(stdout, e.toString());
-        }
-        
-        if (!this.decodeException && !readOnly && firstView) {
-            this.firstView = false;
-            System.out.println("if you don't change something, the request will be the same.");
-            showMessage("if you don't change something, the request will be the same.");
         }
     }
     
     public byte[] getBytes() {
         System.out.println("calling getBytes");
-        // System.out.println(new String(this.editor.getBytes()));
-        // System.out.println("vs");
-        // System.out.println(new String(this.cachedEditorContent));
-        if (decodeException || this.cachedEditorContent == null || new String(this.cachedEditorContent).equals(new String(this.editor.getBytes()))) {
+        if (new String(this.cachedEditorContent).equals(new String(this.editor.getBytes()))) {
             return this.cachedRequestContent;
         }
         System.out.println("different");
