@@ -91,9 +91,8 @@ public class RequestResponseTab implements IMessageBoard {
             editor.setBytes(this.cachedEditorContent);
             
         } catch (Exception e) {
-            if (readOnly) {
-                editor.setBytes("".getBytes());
-            }
+            // TODO: not set "" in repeater (but set in intercept)
+            editor.setBytes("".getBytes());
             showMessage(e.getMessage());
         }
     }

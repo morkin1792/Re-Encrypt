@@ -19,6 +19,7 @@ public class App implements BurpExtension {
         var config = new Config(api.persistence());
         var reEncrypt = new ReEncrypt(config);
         
+        api.extension().setName(name);
         api.userInterface().registerSuiteTab(name, new ExtensionTab(config).uiComponent());
         api.userInterface().registerHttpRequestEditorProvider(new HttpRequestEditorProvider() {
             public ExtensionProvidedHttpRequestEditor provideHttpRequestEditor(EditorCreationContext creationContext) {

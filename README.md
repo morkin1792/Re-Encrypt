@@ -1,21 +1,26 @@
 # Re:Encrypt
 
-This BApp allows send parts of requests to command-line tools, wait it be processed and get the answer back. The original use case is for testing apps with an extra encryption layer on top of HTTP. So, re:encode or re:encrypt parts of requests. 
+This BApp allows you send parts of the requests to command-line tools, and replace these parts by the tools outputs. The main use case is for testing apps with an extra encryption layer over HTTP. So, re:encode or re:encrypt them! 
+
+It requires <strong>Burp Suite v2023 or later</strong> (it uses Montoya API).
 
 ![](decrypting)
 ![](config)
 
+
 ## How to use
 
 ### 0) Install Re:Encrypt
-- you can build this project with the command below, then load the jar (./build/libs/app.jar) in Burp Suite via Extensions > Installed:
+
+- (soon) you can install through the BApp Store
+
+- you can build this project with the command below, then load the jar (./app/build/libs/reencrypt.jar) in Burp Suite via Extensions > Installed:
+
 ```bash
 ./gradlew build
 ```
 
-![](building.png)
-
-- (soon) you can install through the BApp Store
+![](images/building.png)
 
 ### 1) Go to Re:Encrypt tab
 
@@ -74,6 +79,8 @@ When a request is processed successly, the original command-line config is saved
 
 ## TODO
 
+- ?save command history by time, is it possible get time from repeater and history requests?
+- patterns pre defined
 - stdin support
 - replace for plaintexts
 - ?search in plaintext

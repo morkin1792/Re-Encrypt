@@ -22,7 +22,7 @@ dependencies {
 
     // This dependency is used by the application.
     implementation("com.google.guava:guava:31.0.1-jre")
-    implementation("net.portswigger.burp.extensions:montoya-api:+")
+    implementation("net.portswigger.burp.extensions:montoya-api:2023.1")
 }
 val main = "reencrypt.App"
 
@@ -30,14 +30,11 @@ application {
     // Define the main class for the application.
     mainClass.set(main)
 }
-/*
-tasks.named<Test>("test") {
-    // Use JUnit Platform for unit tests.
-    useJUnitPlatform()
-}*/
 
 tasks.withType<Jar> {
     manifest {
         attributes("Main-Class" to "$main")
     }
+    archiveBaseName.set("reencrypt")
 }
+

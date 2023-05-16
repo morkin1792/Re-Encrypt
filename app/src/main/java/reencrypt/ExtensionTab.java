@@ -76,17 +76,17 @@ public class ExtensionTab {
 	public Component uiComponent() {
 		JPanel painelBorderLayout = new JPanel(new BorderLayout());
         JPanel panel = new JPanel(new GridLayout(15, 2));
-		Font hackFont = new Font("Hack", Font.BOLD, 13);
+		Font hackFont = new Font("Hack", Font.BOLD, 18);
 		JLabel jlabel = new JLabel();
 
 		jlabel = new JLabel();
 		jlabel.setFont(hackFont);
-		jlabel.setText("  Pattern");
+		jlabel.setText(" # Defining what will be Re:Encrypted");
 		panel.add(jlabel);
 		panel.add(new JLabel());
 
-		panel.add(new JLabel("  Request Regex"));
-		panel.add(new JLabel("Response Regex"));
+		panel.add(new JLabel("  Request (Regex)"));
+		panel.add(new JLabel("Response (Regex)"));
 		panel.add(requestPattern);
 		panel.add(responsePattern);
 		
@@ -95,7 +95,7 @@ public class ExtensionTab {
 
 		jlabel = new JLabel();
 		jlabel.setFont(hackFont);
-		jlabel.setText("  Command");
+		jlabel.setText(" # What are the commands to process the captured data?");
 		panel.add(jlabel);
 		panel.add(new JLabel());
 
@@ -111,11 +111,11 @@ public class ExtensionTab {
 
 		jlabel = new JLabel();
 		jlabel.setFont(hackFont);
-		jlabel.setText("  Proxy");
+		jlabel.setText(" # Would you like to auto re:encrypt requests?");
 		panel.add(jlabel);
-		panel.add(new JLabel());
+		panel.add(new JLabel(""));
 
-		panel.add(new JLabel());
+		panel.add(new JLabel("  - Recommended for asymmetric encryption"));
 		panel.add(new JLabel("Target URL Regex "));
 		panel.add(autoPatch);
 		panel.add(targetPattern);
