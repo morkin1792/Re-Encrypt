@@ -81,7 +81,7 @@ public class ExtensionTab {
 
 		jlabel = new JLabel();
 		jlabel.setFont(hackFont);
-		jlabel.setText(" # Defining what will be Re:Encrypted");
+		jlabel.setText(" # Defining the part of the request to be re:encrypted");
 		panel.add(jlabel);
 		panel.add(new JLabel());
 
@@ -111,7 +111,7 @@ public class ExtensionTab {
 
 		jlabel = new JLabel();
 		jlabel.setFont(hackFont);
-		jlabel.setText(" # Would you like to auto re:encrypt requests?");
+		jlabel.setText(" # Would you like to automatically re:encrypt requests?");
 		panel.add(jlabel);
 		panel.add(new JLabel(""));
 
