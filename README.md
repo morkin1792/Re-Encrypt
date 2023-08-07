@@ -4,12 +4,7 @@ This BApp allows you send parts of the requests to command-line tools, and repla
 
 So, re:encode or re:encrypt them! 
 
-It requires <strong>Burp Suite v2023 or later</strong> (it uses Montoya API).
-
-⚠️ IMPORTANT ⚠️
-
-Currently, this extension <b>MUST NOT</b> be used with Burp Suite <b>v2023.4 or later</b> (v2023.3 is recommended) due to a bug in how Burp Suite handles the editor tab created by the extension, sometimes showing a outdated content in the tab. When the bug be solved, this disclaimer will be updated!
-
+Technically this extension requires v2023 or later (because of Montoya API). Nevertheless, <strong>Burp Suite v2023.7 or later is recommended</strong>, because there is a bug in how Burp between v2023.4 and v2023.6 handles the editor tab created by the extension, sometimes showing outdated content in the tab. 
 
 ![](decrypting)
 ![](config)
