@@ -76,7 +76,6 @@ public class ReEncrypt {
         config.eraseCommand(cipherText);
     }
 
-
     public String searchAndDecrypt(String regex, byte[] content) throws CommandException, IOException, PatternException {
         return searchAndDecrypt(regex, content, null);
     }

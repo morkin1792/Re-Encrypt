@@ -17,8 +17,10 @@ import java.nio.charset.Charset;
 
 public class RequestResponseTab implements IMessageBoard {
 
-    private RequestResponseEditor editor;
-    private JTextArea errorArea;
+    private final RequestResponseEditor editor;
+    private final JPanel panel;
+    private final JTextArea errorArea;
+    private final Font hackFont;
     private JScrollPane scrollPane;
     private byte[] cachedRequestContent, cachedEditorContent;
     private boolean isRequest, readOnly;
@@ -35,6 +37,10 @@ public class RequestResponseTab implements IMessageBoard {
         this.readOnly = readOnly;
         this.cachedEditorContent = new byte[]{};
         this.errorMessage = "";
+        this.panel = new JPanel(new BorderLayout());
+        this.errorArea = new JTextArea(0, 0);
+        this.hackFont = new Font("Hack", Font.BOLD, 13);
+        mountUi();
     }
 
     public String caption()
@@ -42,11 +48,8 @@ public class RequestResponseTab implements IMessageBoard {
         return App.name;
     }
 
-    public Component uiComponent() {
-        JPanel panel = new JPanel(new BorderLayout());
-        errorArea = new JTextArea(0, 0);
+    public void mountUi() {
         errorArea.setLineWrap(true);
-		Font hackFont = new Font("Hack", Font.BOLD, 13);
         errorArea.setFont(hackFont);
         errorArea.setFocusable(true);
         errorArea.setEditable(false);
@@ -55,6 +58,9 @@ public class RequestResponseTab implements IMessageBoard {
         panel.add(scrollPane, BorderLayout.NORTH);
         panel.add(editor.uiComponent(), BorderLayout.CENTER);
         showMessage(this.errorMessage, this.colorMessage);
+    }
+
+    public Component uiComponent() {
         return panel;
     }
 

@@ -4,7 +4,7 @@ This BApp allows you send parts of the requests to command-line tools, and repla
 
 So, re:encode or re:encrypt them! 
 
-Technically this extension requires v2023 or later (because of Montoya API). Nevertheless, <strong>Burp Suite v2023.7 or later is recommended</strong>, because there is a bug in how Burp between v2023.4 and v2023.6 handles the editor tab created by the extension, sometimes showing outdated content in the tab. 
+Technically this extension requires Burp Suite v2023 or later (because of Montoya API). Nevertheless, <strong>v2023.7 or later is recommended</strong>, due to a bug in how Burp between v2023.4 and v2023.6 handles the editor tab created by the extension, sometimes showing outdated content in the tab. 
 
 ![](decrypting)
 ![](config)
@@ -78,9 +78,16 @@ You can find a script that helps make MiTM in RSA here.
 ![]()
 
 ## TODO
-
+- recovery dates, ideas:
+    - keep data in annotation
+    - use a fast hash for each requests
+- encode field cant be confused with response
+- handle errors message errors for auto reencrypt
+- breakline before Encode / Encrypt 
 - replace/search over plaintext
 - websockets support
+    // api.userInterface().registerWebSocketMessageEditorProvider();
+    // api.userInterface().createWebSocketMessageEditor
 - save command history by time ?is it possible to get time from repeater and history requests?
 - patterns pre defined
 - encryption pre defined
