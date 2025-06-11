@@ -11,6 +11,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.core.ByteArray;
 
 public class RequestResponseEditor {
+    CapturePattern pattern;
     HttpRequestEditor httpRequestEditor;
     HttpResponseEditor httpResponseEditor;
     boolean isResponse;
@@ -31,6 +32,14 @@ public class RequestResponseEditor {
 
     public boolean isModified() {
         return isResponse ? httpResponseEditor.isModified() : httpRequestEditor.isModified();
+    }
+
+    public void setPattern(CapturePattern pattern) {
+        this.pattern = pattern;
+    }
+
+    public CapturePattern getPattern() {
+        return pattern;
     }
 
     public void setBytes(byte[] data) {

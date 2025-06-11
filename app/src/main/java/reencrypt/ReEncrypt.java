@@ -1,6 +1,5 @@
 package reencrypt;
 
-import java.awt.Color;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.regex.Matcher;
@@ -15,23 +14,22 @@ public class ReEncrypt {
         this.config = config;
     }
 
-    public byte[] encryptAndPatch(byte[] request, boolean isRequest, String plainText) throws CommandException, IOException, PatternException {
-        int[] indexes = searchPattern(isRequest, request);
+    public Config getConfig() {
+        return config;
+    }
+
+    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern, String plainText) throws CommandException, IOException, PatternException {
+        int[] indexes = searchPattern(pattern.getRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
-        String cipherText = encrypt(plainText);
+        String cipherText = encrypt(pattern.getEncCommand(), plainText);
         return patchRequest(request, beginIndex, endIndex, cipherText.getBytes());
     }
 
-    public String encrypt(String plainText) throws CommandException, IOException {
-        ShellCommand command = getEncodeCommand(plainText);
+    public String encrypt(String rawCommand, String plainText) throws CommandException, IOException {
+        ShellCommand command = new ShellCommand(rawCommand, plainText);
         String cipherText = command.execute(true);
         return cipherText;
-    }
-
-    ShellCommand getEncodeCommand(String plainText) throws IOException {
-        String rawCommand = config.getEncodeCommand();
-        return new ShellCommand(rawCommand, plainText);
     }
 
     byte[] patchRequest(byte[] rawContent, int beginIndex, int endIndex, byte[] contentPayload) {
@@ -45,10 +43,6 @@ public class ReEncrypt {
         return newRequest;
     }
 
-    public int[] searchPattern(boolean isRequest, byte[] text) throws PatternException {
-        return searchPattern(config.getPattern(isRequest), text);
-    }
-
     public static int[] searchPattern(String regex, byte[] text) throws PatternException {
         Matcher matcher = Pattern.compile(regex).matcher(new String(text));
         if (matcher.find()) {
@@ -56,52 +50,20 @@ public class ReEncrypt {
         }
         throw new PatternException(regex);
     }
-
-    ShellCommand getDecodeCommand(String cipherText, IMessageBoard board) throws IOException {
-        var rawCommand = config.getDecodeCommand();
-        String historyCommand = config.getCommand(cipherText, rawCommand);
-        
-        if (!historyCommand.equals(rawCommand)) {
-            if (board != null) {
-                board.showMessage("[+] It was decrypted/decoded with a saved command: \n" + historyCommand, Color.decode("#23d18b"));
-            }
-            rawCommand = historyCommand;
-        } else if (board != null) {
-            board.showMessage("");
-        }
-        return new ShellCommand(rawCommand, cipherText);
-    }
     
-    void eraseCommand(String cipherText) {
-        config.eraseCommand(cipherText);
-    }
-
-    public String searchAndDecrypt(String regex, byte[] content) throws CommandException, IOException, PatternException {
-        return searchAndDecrypt(regex, content, null);
-    }
-
-    public String searchAndDecrypt(boolean isRequest, byte[] content, IMessageBoard board) throws CommandException, IOException, PatternException {
-        return searchAndDecrypt(config.getPattern(isRequest), content, board);
-    }
-
-    public String searchAndDecrypt(String regex, byte[] content, IMessageBoard board) throws CommandException, IOException, PatternException {
-        int[] indexes = searchPattern(regex, content);
+    public String searchAndDecrypt(CapturePattern pattern, byte[] content) throws CommandException, IOException, PatternException {
+        int[] indexes = searchPattern(pattern.getRegex(), content);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = new String(content).substring(beginIndex, endIndex);
-        return decrypt(cipherText, board);
+        return decrypt(pattern.getDecCommand(), cipherText);
     }
 
-    String decrypt(String cipherText, IMessageBoard board) throws CommandException, IOException {
-        try {
-            ShellCommand command = getDecodeCommand(cipherText, board);
-            String plainText = command.execute(true);
-            return plainText;
-        } catch (Exception exception) {
-            // if exception, erase command and continue exception
-            eraseCommand(cipherText);
-            throw exception;
-        }
+    String decrypt(String decCommand, String cipherText) throws CommandException, IOException {
+        ShellCommand command = new ShellCommand(decCommand, cipherText);
+        String plainText = command.execute(true);
+        return plainText;
+        
     }
 
     public boolean shouldPatchProxyRequest(String url) {

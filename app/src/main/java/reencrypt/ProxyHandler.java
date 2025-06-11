@@ -26,10 +26,15 @@ public class ProxyHandler implements ProxyRequestHandler {
         try {
             if (reEncrypt.shouldPatchProxyRequest(interceptedRequest.url())) {
                 byte[] requestContent = interceptedRequest.toByteArray().getBytes();
-                String plainText = reEncrypt.searchAndDecrypt(true, requestContent, null);
                 
-                byte[] patchedContent = reEncrypt.encryptAndPatch(requestContent, true, plainText);
-                HttpRequest newRequest = HttpRequest.httpRequest(interceptedRequest.httpService(), ByteArray.byteArray(patchedContent));
+                
+                for (var pattern : reEncrypt.getConfig().getActivePatterns(true)) {   
+                    String plainText = reEncrypt.searchAndDecrypt(pattern, requestContent);
+                    requestContent = reEncrypt.encryptAndPatch(requestContent, pattern, plainText);
+                }
+
+                
+                HttpRequest newRequest = HttpRequest.httpRequest(interceptedRequest.httpService(), ByteArray.byteArray(requestContent));
                 
                 return ProxyRequestToBeSentAction.continueWith(newRequest, 
                     Annotations.annotations().withNotes("Modified by " + App.name));

@@ -21,7 +21,9 @@ public class IntruderHandler implements PayloadProcessor {
     public PayloadProcessingResult processPayload(PayloadData payloadData) {
         String cipherText = "";
         try {
-            cipherText = reEncrypt.encrypt(payloadData.currentPayload().toString());
+            // TODO: maybe create a tab where the user can define specific patterns to use with intruder
+            // Proxy and Repeater, Intruder, Extra Settings
+            // cipherText = reEncrypt.encrypt(payloadData.currentPayload().toString());
         } catch (Exception exception) {
             cipherText = exception.getMessage();
         }
