@@ -25,7 +25,7 @@ public class ShellCommand {
 		List<String> commandList = Arrays.asList(commandString.split(" "));
 		for (int index = 0; index < commandList.size(); index++) {
 			String word = commandList.get(index);
-			if (word.equals(Config.argMarker)) {
+			if (word.equals(Config.dataMarker)) {
 				commandList.set(index, text);
                 // this.useStdin = false;
 			} 

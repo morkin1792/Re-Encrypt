@@ -1,6 +1,5 @@
 package reencrypt;
 
-import burp.api.montoya.ui.editor.EditorOptions;
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.HttpService;
@@ -12,11 +11,11 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
     HttpService httpService;
 
     public RequestTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
-        super(new RequestResponseEditor(readOnly ? api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY) : api.userInterface().createHttpRequestEditor()), reEncrypt, readOnly);
+        super(true, api, reEncrypt, readOnly);
     }
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse) {
-        return super.isEnabledFor(requestResponse.request().toByteArray().getBytes(), true);
+        return super.isEnabledFor(requestResponse.request().toByteArray().getBytes());
     }
 
     public HttpRequest getRequest() {
@@ -25,7 +24,7 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
 
     public void setRequestResponse(HttpRequestResponse requestResponse) {
         httpService = requestResponse.request().httpService();
-        super.setBytes(requestResponse.request().toByteArray().getBytes(), true);
+        super.setBytes(requestResponse.request().toByteArray().getBytes());
     }
 
 

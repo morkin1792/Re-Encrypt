@@ -32,6 +32,7 @@ public class App implements BurpExtension {
                 return new ResponseTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY);
             }            
         });
+        // TODO: check if this is the one that shows the changes
         api.proxy().registerRequestHandler(new ProxyHandler(reEncrypt));
         api.intruder().registerPayloadProcessor(new IntruderHandler(reEncrypt));
     }

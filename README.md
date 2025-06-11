@@ -1,28 +1,29 @@
 # Re:Encrypt
 
-This BApp allows you send parts of the requests to command-line tools, and replace these parts by the tools outputs. The main use case is for testing apps with an extra encryption layer over HTTP. 
+This burp extension allows you to send parts of the requests to command-line tools and replace these parts by the tools' outputs. The main use case is for testing apps with an extra encryption layer over HTTP. 
 
-So, re:encode or re:encrypt them! 
+So, re:encode or re:encrypt them!
 
-Technically this extension requires Burp Suite v2023 or later (because of Montoya API). Nevertheless, <strong>v2023.7 or later is recommended</strong>, due to a bug in how Burp between v2023.4 and v2023.6 handles the editor tab created by the extension, sometimes showing outdated content in the tab. 
+Burp Suite v2023.7 or later is recommended to avoid bugs[[1](https://github.com/morkin1792/Re-Encrypt/blob/af913a1eb508bd63c313eb8e5b4ee7d98dfa99df/README.md#reencrypt)]!
 
 ![](decrypting)
 ![](config)
 
+## Installing Re:Encrypt
 
-## How to use
+- <strike>(soon) You can install through the BApp Store</strike>
 
-### 0) Install Re:Encrypt
-
-- (soon) you can install through the BApp Store
-
-- you can build this project with the command below, then load the jar (./app/build/libs/reencrypt.jar) in Burp Suite via Extensions > Installed:
+- You can build this project with the command below, then load the jar (./app/build/libs/reencrypt.jar) in Burp Suite via Extensions > Installed:
 
 ```bash
 ./gradlew build
 ```
 
+- **Alternatively**, you can download the jar from https://github.com/morkin1792/Re-Encrypt/releases
+
 ![](images/building.png)
+
+## How to use
 
 ### 1) Go to Re:Encrypt tab
 
@@ -57,7 +58,7 @@ data":"(.*?)"
 
 ![](proxyCheckbox.png)
 
-You can find a script that helps make MiTM in RSA here.
+You can find a script that helps make MiTM in RSA [here](TODO).
 
 ## Functionalities
 
@@ -78,21 +79,17 @@ You can find a script that helps make MiTM in RSA here.
 ![]()
 
 ## TODO
-- recovery dates, ideas:
-    - keep data in annotation
-    - use a fast hash for each requests
-- encode field cant be confused with response
+- option to save all the decrypted data to a file log
 - handle errors message errors for auto reencrypt
 - breakline before Encode / Encrypt 
 - replace/search over plaintext
 - websockets support
     // api.userInterface().registerWebSocketMessageEditorProvider();
     // api.userInterface().createWebSocketMessageEditor
-- save command history by time ?is it possible to get time from repeater and history requests?
 - patterns pre defined
 - encryption pre defined
-- stdin support
+- ?stdin support
 
-## credits
+## Credits
 
-- thanks to `Jodson` for starting this extension 
+- Thanks to `Jodson` for giving birth to this extension.
