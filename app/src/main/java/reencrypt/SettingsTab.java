@@ -10,25 +10,23 @@ import java.awt.event.ActionListener;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 
-public class ExtensionTab {	
+public class SettingsTab {	
 	private Font hackFont = new Font("Hack", Font.BOLD, 18);
 	private Config config;
 	
-	public ExtensionTab(Config config) {
+	public SettingsTab(Config config) {
 		this.config = config;
 	}
 
 	public Component uiComponent() {
 		JTabbedPane tabbedPane = new JTabbedPane();
 
-        tabbedPane.add("1. Capturing Data", createCaptureDataScreen());
-
-        tabbedPane.add("2. Processing", createProcessingScreen());
+        tabbedPane.add("Capturing Data / Processing", createCaptureDataScreen());
         
-        tabbedPane.add("3. (TODO) Match / Replace", null);
-        tabbedPane.setEnabledAt(2, false);
+        tabbedPane.add("(TODO) Match / Replace", null);
+        tabbedPane.setEnabledAt(1, false);
 
-        tabbedPane.add("4. Extra Settings", createSettingsScreen());
+        tabbedPane.add("Extra Settings", createSettingsScreen());
         
 		return tabbedPane;
 	}
@@ -283,10 +281,14 @@ public class ExtensionTab {
             enabledCheckbox.setSelected(existingPattern.isEnabled());
         } else {
             // If creating a new pattern, set placeholders
-            setPlaceholder(regexField, "data\":\"(.*?)\"");
+            // setPlaceholder(regexField, "data\":\"(.*?)\"");
+            setPlaceholder(nameField, "UA");
+            setPlaceholder(regexField, "User-Agent: (.*)");
             String randomInt = String.valueOf((int) (Math.random() * 10000));
-            setPlaceholder(encCommand, "node /tmp/reencrypt" + randomInt + ".js --encrypt --file {FILE}");
-            setPlaceholder(decCommand, "node /tmp/reencrypt" + randomInt + ".js --decrypt --file {FILE}");
+            setPlaceholder(encCommand, "echo {DATA} ");
+            // setPlaceholder(encCommand, "node /tmp/reencrypt" + randomInt + ".js --encrypt --file {FILE}");
+            // setPlaceholder(decCommand, "node /tmp/reencrypt" + randomInt + ".js --decrypt --file {FILE}");
+            setPlaceholder(decCommand, "echo {DATA} ");
         } 
         
         String[] options = { "OK", "Cancel" };
@@ -318,146 +320,6 @@ public class ExtensionTab {
             }
         }
         return pattern;
-    }
-
-    private JPanel createProcessingScreen() {
-        JPanel subpanel = new JPanel(new GridLayout(2, 1));
-        subpanel.add(createCommandPanel("Decode/Decrypt", true));
-        subpanel.add(createCommandPanel("Encode/Encrypt", false));
-
-        return addPanelInternalText("Add the command to process the captured data", subpanel);
-    }
-
-    private JPanel createCommandPanel(String title, boolean isDecode) {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(title));
-
-        
-        DefaultListModel<String> listModel = new DefaultListModel<>();
-        // listModel.copyInto(config.getCommand(isDecode).toArray());
-        JList<String> list = new JList<>(listModel);
-        list.setLayoutOrientation(JList.HORIZONTAL_WRAP);
-        list.setVisibleRowCount(1);
-        list.setCellRenderer(new DefaultListCellRenderer());
-
-        JScrollPane scrollPane = new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        var boardPanel = new JPanel(new GridBagLayout());
-        
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridwidth = 30;
-        constraints.gridheight = 30;
-        constraints.ipady = 35;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.weightx = 1;
-        constraints.weighty = 1;
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        boardPanel.add(scrollPane, constraints);
-
-        panel.add(boardPanel, BorderLayout.NORTH);
-
-        JPanel buttonPanel = new JPanel(new GridBagLayout());
-
-        JButton leftButton = new JButton("Left");
-        leftButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = list.getSelectedIndex();
-                if (index > 0) {
-                    String value = listModel.remove(index);
-                    listModel.add(index - 1, value);
-                    list.setSelectedIndex(index - 1);
-                    // config.setCommand((String[]) listModel.toArray(), isDecode);
-                }
-            }
-        });
-
-        JButton addButton = new JButton("Add");
-        addButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String newValue = JOptionPane.showInputDialog("Enter new value:");
-                if (newValue != null && !newValue.isEmpty()) {
-                    listModel.addElement(newValue);
-                    // config.setCommand((String[]) listModel.toArray(), isDecode);
-                }
-            }
-        });
-
-        JButton editButton = new JButton("Edit");
-        editButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = list.getSelectedIndex();
-                if (index != -1) {
-                    String newValue = JOptionPane.showInputDialog("Edit value:", listModel.get(index));
-                    if (newValue != null && !newValue.isEmpty()) {
-                        listModel.set(index, newValue);
-                        // config.setCommand((String[]) listModel.toArray(), isDecode);
-                    }
-                }
-            }
-        });
-
-        JButton removeButton = new JButton("Remove");
-        removeButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = list.getSelectedIndex();
-                if (index != -1) {
-                    listModel.remove(index);
-                    // config.setCommand((String[]) listModel.toArray(), isDecode);
-                }
-            }
-        });
-
-        JButton clearButton = new JButton("Clear");
-        clearButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                listModel.clear();
-                // config.setCommand((String[]) listModel.toArray(), isDecode);
-            }
-        });
-
-        JButton rightButton = new JButton("Right");
-        rightButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = list.getSelectedIndex();
-                if (index != -1 && index < listModel.size() - 1) {
-                    String value = listModel.remove(index);
-                    listModel.add(index + 1, value);
-                    list.setSelectedIndex(index + 1);
-                    // config.setCommand((String[]) listModel.toArray(), isDecode);
-                }
-            }
-        });
-
-        constraints = new GridBagConstraints();
-        // constraints.gridwidth = 3;
-        // constraints.gridheight = 3;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(5,5,5,5);
-        constraints.gridx = 0;
-        constraints.gridy = 1;
-        buttonPanel.add(leftButton, constraints);
-        constraints.gridx = 1;
-        constraints.gridy = 0;
-        buttonPanel.add(addButton, constraints);
-        constraints.gridy = 1;
-        buttonPanel.add(editButton, constraints);
-        constraints.gridy = 2;
-        buttonPanel.add(removeButton, constraints);
-        constraints.gridy = 3;
-        buttonPanel.add(clearButton, constraints);
-        constraints.gridy = 1;
-        constraints.gridx = 2;
-        buttonPanel.add(rightButton, constraints);
-
-        panel.add(buttonPanel, BorderLayout.SOUTH);
-
-        return panel;
     }
 
     private JPanel createSettingsScreen() {

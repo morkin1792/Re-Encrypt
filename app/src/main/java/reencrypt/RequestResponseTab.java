@@ -3,6 +3,7 @@ package reencrypt;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
+import reencrypt.exception.PatternException;
 
 import java.awt.Component;
 import java.awt.BorderLayout;
@@ -35,6 +36,7 @@ public class RequestResponseTab implements IMessageBoard {
     private Color colorMessage;
     private ReEncrypt reEncrypt;
     private boolean readOnly;
+    private int cachedLastModifiedIndex, cachedCaretPosition;
 
     public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly)
     {
@@ -44,7 +46,7 @@ public class RequestResponseTab implements IMessageBoard {
         this.readOnly = readOnly;
         
         this.editors = new ArrayList<>();
-
+        this.cachedLastModifiedIndex = 0;
         this.errorMessage = "";
         this.panel = new JPanel(new BorderLayout());
         this.errorArea = new JTextArea(0, 0);
@@ -72,27 +74,34 @@ public class RequestResponseTab implements IMessageBoard {
     }
 
     void reloadEditors() {
-        System.out.println("reloading editors.");
+        // saving the index of the modified tab
+        int lastModifiedIndex = -1;
+        for (var editor : editors) {
+            if (editor.isModified()) {
+                lastModifiedIndex = tabbedPane.indexOfTab(editor.getPattern().getName());
+                cachedLastModifiedIndex = lastModifiedIndex;
+                cachedCaretPosition = editor.caretPosition();
+                break;
+            }
+        }
+        if (lastModifiedIndex == -1) {
+            lastModifiedIndex = cachedLastModifiedIndex;
+        }
+
         editors.clear();
-        System.out.println("reloading editors 2.");
 
         tabbedPane.removeAll();
-        System.out.println("reloading editors 3.");
 
         CapturePattern[] patterns = reEncrypt.getConfig().getActivePatterns(isRequest);
-        System.out.println("reloading editors 4.");
         
         for (CapturePattern pattern : patterns) {
             RequestResponseEditor newEditor = null;
             if (isRequest) {
-                System.out.println("reloading editors 5A." + api.toString());
-                System.out.println("reloading editors 5A." + api.userInterface().createHttpRequestEditor().toString());
                 if (!readOnly) {
                     newEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor());
                 } else {
                     newEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
                 }
-                System.out.println("reloading editors 5B.");
             } else {
                 if (!readOnly) {
                     newEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor());
@@ -101,27 +110,44 @@ public class RequestResponseTab implements IMessageBoard {
 
                 }
             }
-            System.out.println("reloading editors 6.");
+            System.out.println("reloading editors 7.");
             newEditor.setPattern(pattern);
             editors.add(newEditor);
-            System.out.println("reloading editors 7.");
 
         }
 
         System.out.println("middle of reloading editors.");
         for (var editor : editors) {
             try {
+                if (cachedContentFromIsEnabledFor == null) {
+                    System.out.println("cachedContentFromIsEnabledFor is null, setting to empty byte array.");
+                    cachedContentFromIsEnabledFor = new byte[0];
+                    System.out.println(editor.getPattern().getName() + " will not be enabled because no content was set yet.");
+                }
                 ReEncrypt.searchPattern(editor.getPattern().getRegex(), cachedContentFromIsEnabledFor);
                 tabbedPane.add(editor.getPattern().getName(), editor.uiComponent());
                 System.out.println("adding tabs " + editor.getPattern().getName());
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                System.out.println(editors.size() + " editors found.");
+                System.out.println("not adding tab " + editor + " because pattern not found." + e);
+            }
         }
+        
+        // restoring the index of the modified tab
+        if (tabbedPane.getTabCount() > 0 && lastModifiedIndex >= 0 && lastModifiedIndex < tabbedPane.getTabCount()) {
+            tabbedPane.setSelectedIndex(lastModifiedIndex);
+            System.out.println("size of editors: " + editors.size());
+            System.out.println("size of tabbedPane: " + tabbedPane.getTabCount());
+            System.out.println("lastModifiedIndex: " + lastModifiedIndex);
+        }
+
     }
 
     public Component uiComponent() {
-        if (reEncrypt.getConfig().checkReloadEditors(isRequest)) {
+        System.out.println("uiComponent called.");
+        if (reEncrypt.getConfig().checkReloadEditors(isRequest) || editors.size() == 0) {
             reloadEditors();
-        }        
+        }
         return panel;
     }
 
@@ -139,35 +165,51 @@ public class RequestResponseTab implements IMessageBoard {
     }
 
     public boolean isEnabledFor(byte[] content) {
-
-        System.out.println("calling isEnabledFor.");
+        System.out.println("isEnabledFor called. " + editors.size() + " editors found.");
+        System.out.println("setting cachedContentFromIsEnabledFor with " + content.length + " bytes.");
         this.cachedContentFromIsEnabledFor = content;
+
         for (var pattern : reEncrypt.getConfig().getActivePatterns(isRequest)) {
             try {
                 ReEncrypt.searchPattern(pattern.getRegex(), content);
+                System.out.println("found pattern: " + pattern.name);
                 return true;
-            } catch (Exception exception) {  }
+            } catch (Exception exception) { 
+                System.out.println("isEnableFor Exception" + exception);
+                System.out.println(new String(content));
+             }
         }
         return false;
     }
 
     public void setBytes(byte[] content) {
         System.out.println("calling setBytes. " + editors.size() + " editors found.");
-        
+        reloadEditors();
         if (content == null) return;
-        
+
         this.cachedContentFromSetBytes = content;
         for (var editor : editors) {   
             System.out.println("looking for regex: " + editor.getPattern().getRegex());
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
+                // editor.setEnabled(true);
                 String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes);
                 editor.setBytes(plainText.getBytes("Windows-1252"));
                 showMessage("");
+            } catch (PatternException e) {
+                editor.setBytes("[-] pattern not found".getBytes());
             } catch (Exception e) {
+                System.out.println("exception in setBytes: " + e);
                 // editor.setBytes("".getBytes());
-                showMessage(e.getMessage());
+                // editor.setEnabled(false);
+                // showMessage(e.getMessage());
             }
+        }
+        // trying to restore the caret position
+        if (cachedLastModifiedIndex >= 0 && cachedLastModifiedIndex < editors.size()) {
+            var editor = editors.get(cachedLastModifiedIndex);
+            System.out.println("restoring caret position to " + cachedCaretPosition);
+            editor.setCaretPosition(cachedCaretPosition);
         }
     
     }
@@ -180,9 +222,9 @@ public class RequestResponseTab implements IMessageBoard {
             try {
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText);
             } catch (Exception e) {
-                showMessage(e.toString());
+                // showMessage(e.toString());
             }
-            return cachedContentFromSetBytes;
+            // return cachedContentFromSetBytes;
         }
         return patchedRequest;
     }
