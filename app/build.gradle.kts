@@ -17,13 +17,18 @@ repositories {
 }
 
 dependencies {
-    // Use JUnit Jupiter for testing.
-    // testImplementation("org.junit.jupiter:junit-jupiter:5.8.2")
-
     // This dependency is used by the application.
-    implementation("com.google.guava:guava:31.0.1-jre")
-    implementation("net.portswigger.burp.extensions:montoya-api:2023.1")
+    implementation("com.google.guava:guava:31.1-jre")
+    implementation("net.portswigger.burp.extensions:montoya-api:2025.8")
 }
+
+// Apply a specific Java toolchain to ease working on different environments.
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
 val main = "reencrypt.App"
 
 application {
