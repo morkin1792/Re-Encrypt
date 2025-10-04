@@ -1,4 +1,4 @@
-package reencrypt;
+package reencrypt.ui;
 
 import java.awt.Component;
 import java.util.Optional;
@@ -6,6 +6,7 @@ import java.util.Optional;
 import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
+import reencrypt.CapturePattern;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.core.ByteArray;
@@ -17,18 +18,18 @@ public class RequestResponseEditor {
     boolean isResponse;
     int size;
 
-    public RequestResponseEditor(HttpRequestEditor httpRequestEditor){
+    public RequestResponseEditor(HttpRequestEditor httpRequestEditor) {
         this.httpRequestEditor = httpRequestEditor;
         this.isResponse = false;
         this.size = 0;
     }
-    
-    public RequestResponseEditor(HttpResponseEditor httpResponseEditor){
+
+    public RequestResponseEditor(HttpResponseEditor httpResponseEditor) {
         this.httpResponseEditor = httpResponseEditor;
         this.isResponse = true;
         this.size = 0;
     }
-    
+
     public Component uiComponent() {
         return isResponse ? httpResponseEditor.uiComponent() : httpRequestEditor.uiComponent();
     }
@@ -43,7 +44,8 @@ public class RequestResponseEditor {
 
     public void setCaretPosition(int position) {
         System.out.println("setCaretPosition: " + position + " size: " + size);
-        if (size <= 0 || position < 0 || position > size) return;
+        if (size <= 0 || position < 0 || position > size)
+            return;
         if (isResponse) {
             httpResponseEditor.setCaretPosition(position);
         } else {
@@ -70,7 +72,7 @@ public class RequestResponseEditor {
     }
 
     public byte[] getBytes() {
-        if (isResponse) { 
+        if (isResponse) {
             return httpResponseEditor.getResponse().toByteArray().getBytes();
         } else {
             return httpRequestEditor.getRequest().toByteArray().getBytes();
@@ -81,13 +83,4 @@ public class RequestResponseEditor {
     public Optional<Selection> selection() {
         return isResponse ? httpResponseEditor.selection() : httpRequestEditor.selection();
     }
-
-    // public void setEnabled(boolean enabled) {
-    //     if (isResponse) {
-    //         this.httpResponseEditor.uiComponent().setEnabled(enabled);
-
-    //     } else {
-    //         this.httpRequestEditor.uiComponent().setEnabled(enabled);
-    //     }
-    // }
 }

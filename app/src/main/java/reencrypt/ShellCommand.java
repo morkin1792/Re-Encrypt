@@ -1,72 +1,68 @@
 package reencrypt;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Scanner;
-
-import reencrypt.exception.CommandException;
 
 public class ShellCommand {
-    String[] commandArray;
+    String command;
     File tempFile;
-    // boolean useStdin;
 
     public ShellCommand(String command, String text) throws IOException {
         this.tempFile = null;
-        patch(command, text);        
+        patch(command, text);
     }
 
-    void patch(String commandString, String text) throws IOException {
-        // this.useStdin = true;
-		List<String> commandList = Arrays.asList(commandString.split(" "));
-		for (int index = 0; index < commandList.size(); index++) {
-			String word = commandList.get(index);
-			if (word.equals(Config.dataMarker)) {
-				commandList.set(index, text);
-                // this.useStdin = false;
-			} 
-            if (word.equals(Config.fileMarker)) {
-                File tempFile = File.createTempFile("reencrypt-", ".input");
-                this.tempFile = tempFile;
-                Files.write(tempFile.toPath(), text.getBytes());
-                commandList.set(index, tempFile.getPath());
-                // this.useStdin = false;
-            }
-			if ( (word.startsWith("'") || word.startsWith("\"")) && 
-				(word.endsWith("'") || word.endsWith("\""))) {
-					commandList.set(index, word.substring(1, word.length()-1));
-			}
-		}
-        this.commandArray = new String[commandList.size()];
-		commandList.toArray(this.commandArray);
-	}
-
-    public String execute(boolean removeLastLF) throws CommandException, IOException {
-        String result = null;
-        try {
-            Process process = Runtime.getRuntime().exec(commandArray);
-            InputStream inputStream = process.getInputStream();
-            Scanner scanner = new Scanner(inputStream).useDelimiter("\\A");
-            result = scanner.hasNext() ? scanner.next() : null;
-            if (result == null) {
-                throw new CommandException(String.join(" ", commandArray));
-            }
-            //if ends with \n removes it
-            if (removeLastLF && result.charAt(result.length() - 1) == '\n')
-                result = result.substring(0, result.length() - 1);
-        } catch (Exception exception) {
-            DeleteTempFile();
-            throw exception;
+    private void patch(String rawCommand, String text) throws IOException {
+        // Simple implementation without external libraries
+        this.command = rawCommand.replace(Config.dataMarker, text);
+        if (this.command.contains(Config.fileMarker)) {
+            File tempFile = File.createTempFile("reencrypt-", ".input");
+            this.tempFile = tempFile;
+            Files.write(tempFile.toPath(), text.getBytes());
+            this.command = this.command.replace(Config.fileMarker, tempFile.getPath());
         }
-        DeleteTempFile();
-        return result;
     }
 
-    void DeleteTempFile() {
+    public String execute() throws IOException, InterruptedException {
+        try {
+            System.out.println("Executing command: " + command);
+            String os = System.getProperty("os.name").toLowerCase();
+            ProcessBuilder builder;
+
+            if (os.contains("win")) {
+                builder = new ProcessBuilder("cmd.exe", "/c", command);
+            } else {
+                builder = new ProcessBuilder("bash", "-c", command);
+            }
+
+            builder.redirectErrorStream(true);
+            Process process = builder.start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append(System.lineSeparator());
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                // throw new RuntimeException("Command exited with code " + exitCode +
+                // "\nOutput:\n" + output);
+                return "Command exited with code " + exitCode + "\nOutput:\n" + output;
+            }
+            return output.toString().trim();
+        } finally {
+            DeleteTempFile();
+        }
+    }
+
+    private void DeleteTempFile() {
         if (this.tempFile != null) {
             this.tempFile.delete();
         }
