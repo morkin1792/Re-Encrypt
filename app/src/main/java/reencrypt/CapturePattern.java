@@ -1,55 +1,71 @@
 package reencrypt;
 
-public class CapturePattern {
-    boolean enabled;
+import java.io.Serializable;
+import java.util.regex.Pattern;
+
+public class CapturePattern implements Serializable {
+    boolean enabled, patchProxy;
     String name;
-    String regex;
+    String patternRegex;
+    String urlTargetRegex;
     String decCommand, encCommand;
-    
-    public CapturePattern(String name, String regex, String decCommand, String encCommand, boolean enabled) {
+
+    public CapturePattern(String name, String patternRegex, String urlTargetRegex, String decCommand, String encCommand,
+            boolean enabled, boolean patchProxy) {
         this.enabled = enabled;
-        this.regex = regex;
+        this.patternRegex = patternRegex;
+        this.urlTargetRegex = urlTargetRegex;
         this.name = name;
         this.decCommand = decCommand;
         this.encCommand = encCommand;
+        this.patchProxy = patchProxy;
     }
 
     public boolean isEnabled() {
         return enabled;
     }
 
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
+    public boolean isAutoPatchProxy() {
+        return patchProxy;
     }
 
-    public String getRegex() {
-        return regex;
+    public String getPatternRegex() {
+        return patternRegex;
+    }
+
+    public String getURLTargetRegex() {
+        return urlTargetRegex;
+    }
+
+    public boolean isTarget(String url) {
+        return Pattern.compile(urlTargetRegex).matcher(url).find();
+    }
+
+    public boolean shouldPatchProxy(String url) {
+        return patchProxy && isTarget(url);
+    }
+
+    public boolean getPatchProxy() {
+        return patchProxy;
     }
 
     public String getName() {
         return name;
     }
-    public String getDecCommand() {
-        return decCommand;
-    }
-    public String getEncCommand() {
-        return encCommand;
-    }
-    
-    public void setRegex(String regex) {
-        this.regex = regex;
-    }
-    
+
     public void setName(String name) {
         this.name = name;
     }
-    
-    public void setDecCommand(String decCommand) {
-        this.decCommand = decCommand;
-    }
-    
-    public void setEncCommand(String encCommand) {
-        this.encCommand = encCommand;
+
+    public String getDecCommand() {
+        return decCommand;
     }
 
+    public String getEncCommand() {
+        return encCommand;
+    }
+
+    public CapturePattern clone() {
+        return new CapturePattern(name, patternRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy);
+    }
 }

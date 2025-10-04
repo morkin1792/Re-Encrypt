@@ -5,11 +5,11 @@ import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import reencrypt.exception.CommandException;
 import reencrypt.exception.PatternException;
 
 public class ReEncrypt {
     Config config;
+
     public ReEncrypt(Config config) {
         this.config = config;
     }
@@ -18,17 +18,18 @@ public class ReEncrypt {
         return config;
     }
 
-    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern, String plainText) throws CommandException, IOException, PatternException {
-        int[] indexes = searchPattern(pattern.getRegex(), request);
+    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern, String plainText)
+            throws IOException, InterruptedException, PatternException {
+        int[] indexes = searchPattern(pattern.getPatternRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = encrypt(pattern.getEncCommand(), plainText);
         return patchRequest(request, beginIndex, endIndex, cipherText.getBytes());
     }
 
-    public String encrypt(String rawCommand, String plainText) throws CommandException, IOException {
+    public String encrypt(String rawCommand, String plainText) throws IOException, InterruptedException {
         ShellCommand command = new ShellCommand(rawCommand, plainText);
-        String cipherText = command.execute(true);
+        String cipherText = command.execute();
         return cipherText;
     }
 
@@ -50,24 +51,21 @@ public class ReEncrypt {
         }
         throw new PatternException(regex);
     }
-    
-    public String searchAndDecrypt(CapturePattern pattern, byte[] content) throws CommandException, IOException, PatternException {
-        int[] indexes = searchPattern(pattern.getRegex(), content);
+
+    public String searchAndDecrypt(CapturePattern pattern, byte[] content)
+            throws IOException, InterruptedException, PatternException {
+        int[] indexes = searchPattern(pattern.getPatternRegex(), content);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = new String(content).substring(beginIndex, endIndex);
         return decrypt(pattern.getDecCommand(), cipherText);
     }
 
-    String decrypt(String decCommand, String cipherText) throws CommandException, IOException {
+    String decrypt(String decCommand, String cipherText) throws IOException, InterruptedException {
         ShellCommand command = new ShellCommand(decCommand, cipherText);
-        String plainText = command.execute(true);
+        String plainText = command.execute();
         return plainText;
-        
-    }
 
-    public boolean shouldPatchProxyRequest(String url) {
-        return config.shouldPatchProxy() && Pattern.compile(config.getTargetPattern()).matcher(url).find();
     }
 
 }

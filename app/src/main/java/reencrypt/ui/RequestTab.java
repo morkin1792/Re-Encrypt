@@ -1,6 +1,7 @@
-package reencrypt;
+package reencrypt.ui;
 
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor;
+import reencrypt.ReEncrypt;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
@@ -15,7 +16,7 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
     }
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse) {
-        return super.isEnabledFor(requestResponse.request().toByteArray().getBytes());
+        return super.isEnabledFor(requestResponse, true);
     }
 
     public HttpRequest getRequest() {
@@ -26,6 +27,5 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
         httpService = requestResponse.request().httpService();
         super.setBytes(requestResponse.request().toByteArray().getBytes());
     }
-
 
 }

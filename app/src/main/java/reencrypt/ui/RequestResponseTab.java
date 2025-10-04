@@ -1,8 +1,14 @@
-package reencrypt;
+package reencrypt.ui;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.requests.MalformedRequestException;
 import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
+import reencrypt.App;
+import reencrypt.CapturePattern;
+import reencrypt.ReEncrypt;
 import reencrypt.exception.PatternException;
 
 import java.awt.Component;
@@ -20,7 +26,7 @@ import javax.swing.ScrollPaneConstants;
 
 import java.nio.charset.Charset;
 
-public class RequestResponseTab implements IMessageBoard {
+public class RequestResponseTab {
 
     private MontoyaApi api;
     private ArrayList<RequestResponseEditor> editors;
@@ -30,6 +36,7 @@ public class RequestResponseTab implements IMessageBoard {
     private JScrollPane scrollPane;
     private JTabbedPane tabbedPane;
     private byte[] cachedContentFromIsEnabledFor;
+    private String cachedURLFromIsEnabledFor;
     private byte[] cachedContentFromSetBytes;
     private boolean isRequest;
     private String errorMessage;
@@ -38,13 +45,12 @@ public class RequestResponseTab implements IMessageBoard {
     private boolean readOnly;
     private int cachedLastModifiedIndex, cachedCaretPosition;
 
-    public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly)
-    {
+    public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
         this.isRequest = isRequest;
         this.api = api;
         this.reEncrypt = reEncrypt;
         this.readOnly = readOnly;
-        
+
         this.editors = new ArrayList<>();
         this.cachedLastModifiedIndex = 0;
         this.errorMessage = "";
@@ -54,8 +60,7 @@ public class RequestResponseTab implements IMessageBoard {
         mountUi();
     }
 
-    public String caption()
-    {
+    public String caption() {
         return App.name;
     }
 
@@ -78,7 +83,7 @@ public class RequestResponseTab implements IMessageBoard {
         int lastModifiedIndex = -1;
         for (var editor : editors) {
             if (editor.isModified()) {
-                lastModifiedIndex = tabbedPane.indexOfTab(editor.getPattern().getName());
+                lastModifiedIndex = tabbedPane.indexOfComponent(editor.uiComponent());
                 cachedLastModifiedIndex = lastModifiedIndex;
                 cachedCaretPosition = editor.caretPosition();
                 break;
@@ -93,20 +98,22 @@ public class RequestResponseTab implements IMessageBoard {
         tabbedPane.removeAll();
 
         CapturePattern[] patterns = reEncrypt.getConfig().getActivePatterns(isRequest);
-        
+
         for (CapturePattern pattern : patterns) {
             RequestResponseEditor newEditor = null;
             if (isRequest) {
                 if (!readOnly) {
                     newEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor());
                 } else {
-                    newEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
+                    newEditor = new RequestResponseEditor(
+                            api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
                 }
             } else {
                 if (!readOnly) {
                     newEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor());
                 } else {
-                    newEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
+                    newEditor = new RequestResponseEditor(
+                            api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
 
                 }
             }
@@ -120,11 +127,12 @@ public class RequestResponseTab implements IMessageBoard {
         for (var editor : editors) {
             try {
                 if (cachedContentFromIsEnabledFor == null) {
-                    System.out.println("cachedContentFromIsEnabledFor is null, setting to empty byte array.");
                     cachedContentFromIsEnabledFor = new byte[0];
-                    System.out.println(editor.getPattern().getName() + " will not be enabled because no content was set yet.");
                 }
-                ReEncrypt.searchPattern(editor.getPattern().getRegex(), cachedContentFromIsEnabledFor);
+                if (!editor.getPattern().isTarget(cachedURLFromIsEnabledFor)) {
+                    continue;
+                }
+                ReEncrypt.searchPattern(editor.getPattern().getPatternRegex(), cachedContentFromIsEnabledFor);
                 tabbedPane.add(editor.getPattern().getName(), editor.uiComponent());
                 System.out.println("adding tabs " + editor.getPattern().getName());
             } catch (Exception e) {
@@ -132,7 +140,7 @@ public class RequestResponseTab implements IMessageBoard {
                 System.out.println("not adding tab " + editor + " because pattern not found." + e);
             }
         }
-        
+
         // restoring the index of the modified tab
         if (tabbedPane.getTabCount() > 0 && lastModifiedIndex >= 0 && lastModifiedIndex < tabbedPane.getTabCount()) {
             tabbedPane.setSelectedIndex(lastModifiedIndex);
@@ -144,7 +152,6 @@ public class RequestResponseTab implements IMessageBoard {
     }
 
     public Component uiComponent() {
-        System.out.println("uiComponent called.");
         if (reEncrypt.getConfig().checkReloadEditors(isRequest) || editors.size() == 0) {
             reloadEditors();
         }
@@ -164,20 +171,39 @@ public class RequestResponseTab implements IMessageBoard {
         scrollPane.setVisible(errorArea.isVisible());
     }
 
-    public boolean isEnabledFor(byte[] content) {
-        System.out.println("isEnabledFor called. " + editors.size() + " editors found.");
+    public boolean isEnabledFor(HttpRequestResponse requestResponse, boolean isRequest) {
+        HttpRequest request = requestResponse.request();
+        String url;
+        try {
+            url = request.url();
+        } catch (MalformedRequestException e) {
+            return false;
+        }
+
+        byte[] content = request.toByteArray().getBytes();
+        if (!isRequest) {
+            content = requestResponse.response().toByteArray().getBytes();
+        }
+
+        System.out.println("isEnabledFor " + (isRequest ? "Request " : "Response ") + request.method() + " "
+                + url.substring(0, Math.min(url.length(), 100)) + "...");
+        System.out.println("isEnabledFor " + editors.size() + " editors found.");
         System.out.println("setting cachedContentFromIsEnabledFor with " + content.length + " bytes.");
         this.cachedContentFromIsEnabledFor = content;
+        this.cachedURLFromIsEnabledFor = url;
 
         for (var pattern : reEncrypt.getConfig().getActivePatterns(isRequest)) {
             try {
-                ReEncrypt.searchPattern(pattern.getRegex(), content);
-                System.out.println("found pattern: " + pattern.name);
-                return true;
-            } catch (Exception exception) { 
+                if (pattern.isTarget(url)) {
+                    ReEncrypt.searchPattern(pattern.getPatternRegex(), content);
+                    System.out.println("found pattern: " + pattern.getName());
+                    return true;
+                }
+            } catch (Exception exception) {
                 System.out.println("isEnableFor Exception" + exception);
-                System.out.println(new String(content));
-             }
+                System.out.println(url.substring(0, Math.min(url.length(), 100)) + "...");
+                System.out.println(new String(content).substring(0, Math.min(content.length, 100)) + "...");
+            }
         }
         return false;
     }
@@ -185,11 +211,12 @@ public class RequestResponseTab implements IMessageBoard {
     public void setBytes(byte[] content) {
         System.out.println("calling setBytes. " + editors.size() + " editors found.");
         reloadEditors();
-        if (content == null) return;
+        if (content == null)
+            return;
 
         this.cachedContentFromSetBytes = content;
-        for (var editor : editors) {   
-            System.out.println("looking for regex: " + editor.getPattern().getRegex());
+        for (var editor : editors) {
+            System.out.println("looking for regex: " + editor.getPattern().getPatternRegex());
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
                 // editor.setEnabled(true);
@@ -211,14 +238,14 @@ public class RequestResponseTab implements IMessageBoard {
             System.out.println("restoring caret position to " + cachedCaretPosition);
             editor.setCaretPosition(cachedCaretPosition);
         }
-    
+
     }
-    
+
     public byte[] getBytes() {
         System.out.println("calling getBytes");
         byte[] patchedRequest = cachedContentFromSetBytes.clone();
-        for (var editor : editors) {   
-            String plainText = new String(editor.getBytes(), Charset.forName("utf8"));   
+        for (var editor : editors) {
+            String plainText = new String(editor.getBytes(), Charset.forName("utf8"));
             try {
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText);
             } catch (Exception e) {
@@ -237,8 +264,7 @@ public class RequestResponseTab implements IMessageBoard {
         return false;
     }
 
-    public Selection selectedData()
-    {
+    public Selection selectedData() {
         for (var editor : editors) {
             Optional<Selection> selection = editor.selection();
             if (!selection.isEmpty()) {
@@ -247,6 +273,5 @@ public class RequestResponseTab implements IMessageBoard {
         }
         return null;
     }
-    
-    
+
 }

@@ -1,8 +1,11 @@
-package reencrypt;
+package reencrypt.ui;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
+
+import reencrypt.CapturePattern;
+import reencrypt.Config;
 
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -10,26 +13,27 @@ import java.awt.event.ActionListener;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 
-public class SettingsTab {	
-	private Font hackFont = new Font("Hack", Font.BOLD, 18);
-	private Config config;
-	
-	public SettingsTab(Config config) {
-		this.config = config;
-	}
+public class SettingsTab {
+    private Font hackFont = new Font("Hack", Font.BOLD, 18);
+    private Config config;
 
-	public Component uiComponent() {
-		JTabbedPane tabbedPane = new JTabbedPane();
+    public SettingsTab(Config config) {
+        this.config = config;
+    }
+
+    public Component uiComponent() {
+        JTabbedPane tabbedPane = new JTabbedPane();
 
         tabbedPane.add("Capturing Data / Processing", createCaptureDataScreen());
-        
+
         tabbedPane.add("(TODO) Match / Replace", null);
         tabbedPane.setEnabledAt(1, false);
 
         tabbedPane.add("Extra Settings", createSettingsScreen());
-        
-		return tabbedPane;
-	}
+
+        return tabbedPane;
+    }
+
     private JPanel createCaptureDataScreen() {
         JPanel subpanel = new JPanel(new GridLayout(1, 3));
         subpanel.add(createCaptureDataTable("Request", true));
@@ -39,21 +43,14 @@ public class SettingsTab {
 
     private JPanel createCaptureDataTable(String title, boolean isRequest) {
 
-        // new approach, keep all patterns in the config
-        // and load them when the tab is created
-        // and modify the config when the user adds, removes or edits a pattern
-        
-
-
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(title));
-        
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText(title);
+        panel.add(jlabel, BorderLayout.NORTH);
 
-        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Regex", "Dec(ode|rypt) Command", "Enc(ode|rypt) Command" };
-        
-        if (!isRequest) {
-            tableColumnName = new Object[] { "Enabled", "Name", "Regex", "Dec(ode|rypt) Command" };
-        }
+        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Pattern Regex", "Target", "Patch Proxy",
+                "Dec(ode|rypt) Command", "Enc(ode|rypt) Command" };
 
         // Creating tables
         DefaultTableModel model = new DefaultTableModel(null, tableColumnName) {
@@ -62,14 +59,8 @@ public class SettingsTab {
                 switch (getColumnName(columnIndex)) {
                     case "Enabled":
                         return Boolean.class;
-                    // case "Name":
-                    //     return String.class;
-                    // case "Regex":
-                    //     return String.class;
-                    // case "Enc(ode|rypt) Command":
-                    //     return String.class;
-                    // case "Dec(ode|rypt) Command":
-                    //     return String.class;
+                    case "Patch Proxy":
+                        return Boolean.class;
                 }
                 return super.getColumnClass(columnIndex);
             };
@@ -81,35 +72,31 @@ public class SettingsTab {
         };
         // Loading saved patterns
         updateTable(
-            model,
-            config, 
-            isRequest
-        );
+                model,
+                config,
+                isRequest);
         JTable table = new JTable(model);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(60);   // "Enabled"
-        columnModel.getColumn(1).setPreferredWidth(70);  // "Name"
-        columnModel.getColumn(2).setPreferredWidth(100);  // "Regex"
-        if (isRequest) {
-            columnModel.getColumn(3).setPreferredWidth(250);  // "Decode|Crypt"
-            columnModel.getColumn(4).setPreferredWidth(250);  // "Encode|Crypt"
-        } else {
-            columnModel.getColumn(3).setPreferredWidth(450);  // "Decode|Crypt"
-        }
+        columnModel.getColumn(0).setPreferredWidth(60); // "Enabled"
+        columnModel.getColumn(1).setPreferredWidth(70); // "Name"
+        columnModel.getColumn(2).setPreferredWidth(100); // "Pattern Regex"
+        columnModel.getColumn(3).setPreferredWidth(50); // "Target"
+        columnModel.getColumn(4).setPreferredWidth(50); // "Patch Proxy"
+        columnModel.getColumn(5).setPreferredWidth(300); // "Decode|Crypt"
+        columnModel.getColumn(6).setPreferredWidth(300); // "Encode|Crypt"
 
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         panel.add(scrollPane);
 
-        
         // Adding buttons
         JButton addButton = new JButton("Add");
         addButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                
+
                 var newPattern = createOrEditPatternPopup(isRequest);
                 if (newPattern == null) {
                     return; // User cancelled the dialog
@@ -117,10 +104,9 @@ public class SettingsTab {
                 config.addPattern(newPattern, isRequest);
 
                 updateTable(
-                    model,
-                    config, 
-                    isRequest
-                );
+                        model,
+                        config,
+                        isRequest);
             }
         });
 
@@ -131,18 +117,16 @@ public class SettingsTab {
                 int index = table.getSelectedRow();
                 if (index != -1) {
                     var modifiedPattern = createOrEditPatternPopup(
-                        config.getPatterns(isRequest).get(index), isRequest
-                    );
+                            config.getPatterns(isRequest).get(index), isRequest);
                     if (modifiedPattern == null) {
                         return; // User cancelled the dialog
                     }
 
                     config.editPattern(index, modifiedPattern, isRequest);
                     updateTable(
-                        model,
-                        config, 
-                        isRequest
-                    );
+                            model,
+                            config,
+                            isRequest);
                 }
             }
         });
@@ -151,16 +135,15 @@ public class SettingsTab {
         cloneButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                
+
                 int index = table.getSelectedRow();
                 if (index != -1) {
                     // cloning the selected pattern
                     config.clonePattern(index, isRequest);
                     updateTable(
-                        model,
-                        config, 
-                        isRequest
-                    );
+                            model,
+                            config,
+                            isRequest);
 
                     // moving the cloned pattern
                     int wishedIndex = index + 1;
@@ -186,10 +169,9 @@ public class SettingsTab {
                     config.removePattern(selectedRowIndex, isRequest);
                 }
                 updateTable(
-                    model,
-                    config, 
-                    isRequest
-                );
+                        model,
+                        config,
+                        isRequest);
             }
         });
 
@@ -246,51 +228,59 @@ public class SettingsTab {
         JPanel panel = new JPanel(new GridLayout(0, 1));
 
         JTextField nameField = new JTextField();
-        nameField.setToolTipText("Enter a name for the pattern. This is optional but recommended for easier identification.");
-        panel.add(new JLabel("Name:"));
+        nameField.setToolTipText("Enter a name for the pattern.");
+        panel.add(new JLabel("Tab Name"));
         panel.add(nameField);
 
-        JTextField regexField = new JTextField(); 
+        JTextField regexField = new JTextField();
         regexField.setToolTipText("Enter the regex to match the part of the data you want to capture.");
-        panel.add(new JLabel("Regex:"));
+        panel.add(new JLabel("Pattern Regex (So, case sensitive)"));
         panel.add(regexField);
-        
+
+        JTextField scopeField = new JTextField();
+        scopeField.setToolTipText(
+                "Enter a regex to filter the URLs where this pattern will be applied. Leave empty to apply to all URLs.");
+        panel.add(new JLabel("Target URL Regex "));
+        panel.add(scopeField);
+
         JTextField decCommand = new JTextField();
-        decCommand.setToolTipText("Enter the command to decrypt/decode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
-        panel.add(new JLabel("Dec Command:"));
+        decCommand.setToolTipText(
+                "Enter the command to decrypt/decode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
+        panel.add(new JLabel("Decode Command"));
         panel.add(decCommand);
 
         JTextField encCommand = new JTextField();
-        encCommand.setToolTipText("Enter the command to encrypt/encode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
-        if (isRequest) {
-            panel.add(new JLabel("Enc Command:"));
-            panel.add(encCommand);
-        }
-        
-        JCheckBox enabledCheckbox = new JCheckBox("Enabled", true);
-        // panel.add(new JLabel("Enabled:"));
+        encCommand.setToolTipText(
+                "Enter the command to encrypt/encode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
+        panel.add(new JLabel("Encode Command"));
+        panel.add(encCommand);
+
+        JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
         panel.add(enabledCheckbox);
-        enabledCheckbox.setSelected(true);
-        
+
+        JCheckBox patchProxyCheckbox = new JCheckBox(
+                "Automatically patch proxy " + (isRequest ? "requests" : "responses"), false);
+        panel.add(patchProxyCheckbox);
+
         if (existingPattern != null) {
             // If editing an existing pattern, populate the fields with its data
-            regexField.setText(existingPattern.getRegex());
+            regexField.setText(existingPattern.getPatternRegex());
+            scopeField.setText(existingPattern.getURLTargetRegex());
             nameField.setText(existingPattern.getName());
             encCommand.setText(existingPattern.getEncCommand());
             decCommand.setText(existingPattern.getDecCommand());
             enabledCheckbox.setSelected(existingPattern.isEnabled());
+            patchProxyCheckbox.setSelected(existingPattern.getPatchProxy());
         } else {
             // If creating a new pattern, set placeholders
             // setPlaceholder(regexField, "data\":\"(.*?)\"");
             setPlaceholder(nameField, "UA");
             setPlaceholder(regexField, "User-Agent: (.*)");
-            String randomInt = String.valueOf((int) (Math.random() * 10000));
-            setPlaceholder(encCommand, "echo {DATA} ");
-            // setPlaceholder(encCommand, "node /tmp/reencrypt" + randomInt + ".js --encrypt --file {FILE}");
-            // setPlaceholder(decCommand, "node /tmp/reencrypt" + randomInt + ".js --decrypt --file {FILE}");
-            setPlaceholder(decCommand, "echo {DATA} ");
-        } 
-        
+            setPlaceholder(scopeField, "^http[s]?\\:\\/\\/.*");
+            setPlaceholder(encCommand, "cat {FILE} ");
+            setPlaceholder(decCommand, "cat {FILE} ");
+        }
+
         String[] options = { "OK", "Cancel" };
 
         JOptionPane optionPane = new JOptionPane(panel,
@@ -298,7 +288,7 @@ public class SettingsTab {
                 JOptionPane.OK_CANCEL_OPTION,
                 null,
                 options,
-                options[0]); 
+                options[0]);
 
         JDialog dialog = optionPane.createDialog("Add New Pattern");
         dialog.setVisible(true);
@@ -308,15 +298,21 @@ public class SettingsTab {
         if ("OK".equals(selectedValue)) {
             String regex = regexField.getText();
             if (regex != null && !regex.isEmpty()) {
+                String name = nameField.getText();
+                if (name == null || name.isEmpty()) {
+                    name = "Pattern " + (config.getPatterns(isRequest).size() + 1);
+                }
                 pattern = new CapturePattern(
-                    nameField.getText(), 
-                    regex, 
-                    decCommand.getText(),
-                    encCommand.getText(),
-                    enabledCheckbox.isSelected()
-                );
+                        name,
+                        regex,
+                        scopeField.getText(),
+                        decCommand.getText(),
+                        encCommand.getText(),
+                        enabledCheckbox.isSelected(),
+                        patchProxyCheckbox.isSelected());
             } else {
-                JOptionPane.showMessageDialog(null, "Regex cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern regex.", "Error",
+                        JOptionPane.ERROR_MESSAGE);
             }
         }
         return pattern;
@@ -325,61 +321,26 @@ public class SettingsTab {
     private JPanel createSettingsScreen() {
         JPanel painelBorderLayout = new JPanel(new BorderLayout());
         JPanel panel = new JPanel(new GridLayout(15, 1));
-		
-        JCheckBox autoPatch = new JCheckBox("Automatically re:encrypt proxy requests. Recommended when working with asymmetric encryption.", config.shouldPatchProxy());
-		JTextField targetPattern = new JTextField(config.getTargetPattern());
-        
-        // TODO: save modified config
 
-        // DocumentListener saveListener = new DocumentListener() {
-		// 	@Override
-		// 	public void insertUpdate(DocumentEvent e) {
-		// 		updateFieldState();
-		// 	}
+        // TODO: remove this setting?
+        JCheckBox saveCommands = new JCheckBox(
+                "Save the commands used to decrypt / decode. Recommended if you need to update them often.",
+                config.shouldSaveCommands());
+        saveCommands.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateSaveCommands(isSelected);
+        });
 
-		// 	@Override
-		// 	public void removeUpdate(DocumentEvent e) {
-		// 		updateFieldState();
-		// 	}
+        panel.add(saveCommands);
 
-		// 	@Override
-		// 	public void changedUpdate(DocumentEvent e) {
-		// 		updateFieldState();
-		// 	}
+        painelBorderLayout.add(panel, BorderLayout.NORTH);
 
-		// 	protected void updateFieldState() {
-		// 		config.updateFields(requestPattern.getText(), responsePattern.getText(), decodeCommand.getText(), encodeCommand.getText(), targetPattern.getText());
-		// 	}
-		// };
-
-        // 	textField.getDocument().addDocumentListener(saveListener);
-
-        targetPattern.setEnabled(autoPatch.isSelected());
-		autoPatch.addItemListener(state -> {
-			boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-			config.updatePatchProxy(isSelected);
-			targetPattern.setEnabled(isSelected);
-		});
-
-		JCheckBox saveCommands = new JCheckBox("Save the commands used to decrypt / decode. Recommended if you need to update them often.", config.shouldSaveCommands());
-		saveCommands.addItemListener(state -> {
-			boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-			config.updateSaveCommands(isSelected);
-		});
-
-
-		panel.add(saveCommands);
-		panel.add(autoPatch);
-		panel.add(new JLabel("Target url: "));
-		panel.add(targetPattern);
-				
-		painelBorderLayout.add(panel, BorderLayout.NORTH);
-		
-		return addPanelInternalText("Optionally, configure the settings", painelBorderLayout);
+        return addPanelInternalText("Optionally, configure the settings", painelBorderLayout);
     }
 
     private int moveRow(DefaultTableModel model, int fromIndex, int toIndex) {
-        if (toIndex < 0 || toIndex > model.getRowCount() - 1) return fromIndex;
+        if (toIndex < 0 || toIndex > model.getRowCount() - 1)
+            return fromIndex;
         // Save the row data
         Object[] rowData = new Object[model.getColumnCount()];
         for (int col = 0; col < model.getColumnCount(); col++) {
@@ -422,14 +383,16 @@ public class SettingsTab {
         var updatedPatterns = config.getPatterns(isRequest);
         for (var updatedPattern : updatedPatterns) {
             model.addRow(new Object[] {
-                updatedPattern.isEnabled(),
-                updatedPattern.getName(),
-                updatedPattern.getRegex(),
-                updatedPattern.getDecCommand(),
-                updatedPattern.getEncCommand()
+                    updatedPattern.isEnabled(),
+                    updatedPattern.getName(),
+                    updatedPattern.getPatternRegex(),
+                    updatedPattern.getURLTargetRegex(),
+                    updatedPattern.getPatchProxy(),
+                    updatedPattern.getDecCommand(),
+                    updatedPattern.getEncCommand()
             });
         }
-        
+
     }
 
     private JPanel addPanelInternalText(String text, JPanel subpanel) {
@@ -437,24 +400,23 @@ public class SettingsTab {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
         jlabel.setText(text);
-    
+
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.fill = GridBagConstraints.HORIZONTAL;
         constraints.weightx = 1;
         constraints.gridx = 0;
         constraints.gridy = 0;
         constraints.anchor = GridBagConstraints.NORTH;
-        constraints.insets = new Insets(10, 10, 10, 10); 
-        
+        constraints.insets = new Insets(10, 10, 10, 10);
+
         panel.add(jlabel, constraints);
-        
-        
-        constraints.weighty = 1; 
+
+        constraints.weighty = 1;
         constraints.gridy = 1;
         constraints.insets = new Insets(10, 10, 10, 10);
 
         panel.add(subpanel, constraints);
-    
+
         return panel;
     }
 

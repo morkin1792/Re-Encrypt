@@ -1,10 +1,14 @@
 # Re:Encrypt
 
-This burp extension allows you to send parts of the requests to command-line tools and replace these parts by the tools' outputs. The main use case is for testing apps with an extra encryption layer over HTTP. 
+This burp extension allows you to patch parts of requests via command-line tools. Use cases include:
 
-So, re:encode or re:encrypt them!
+* Test applications that have encrypted parameters.
+* Trigger commands when a specific pattern is detected.
+* Create complex match-replace rules.
 
-Burp Suite v2023.7 or later is recommended to avoid bugs[[1](https://github.com/morkin1792/Re-Encrypt/blob/af913a1eb508bd63c313eb8e5b4ee7d98dfa99df/README.md#reencrypt)]!
+Let's re:encode!
+
+Burp Suite v2025.8 or later is recommended!
 
 ![](decrypting)
 ![](config)
@@ -79,16 +83,14 @@ You can find a script that helps make MiTM in RSA [here](TODO).
 ![]()
 
 ## TODO
-- option to save all the decrypted data to a file log
-- handle errors message errors for auto reencrypt
-- breakline before Encode / Encrypt 
-- replace/search over plaintext
+- save all the decrypted data to a file log
+- remove old save commands code
+- better UI, intruder support again, ?pre defined/patterns
+- why caret is not working?
+- ?pre defined encryption/scripts
 - websockets support
     // api.userInterface().registerWebSocketMessageEditorProvider();
     // api.userInterface().createWebSocketMessageEditor
-- patterns pre defined
-- encryption pre defined
-- ?stdin support
 
 ## Credits
 

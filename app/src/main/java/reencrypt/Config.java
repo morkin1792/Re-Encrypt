@@ -1,5 +1,6 @@
 package reencrypt;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 
@@ -10,32 +11,25 @@ public class Config implements Serializable {
     public static final String fileMarker = "{FILE}";
     public static final String dataMarker = "{DATA}";
     private static final String cmdKeyPrefix = "sh/";
-    
-    ArrayList<CapturePattern> requestPatterns, responsePatterns; 
+
+    ArrayList<CapturePattern> requestPatterns, responsePatterns;
     String decodeCommand, encodeCommand;
-    String targetPattern;
-    boolean shouldPatchProxy, shouldSaveCommands, reloadRequestEditors, reloadResponseEditors;
+    boolean shouldSaveCommands, reloadRequestEditors, reloadResponseEditors;
     PersistedObject persisted;
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
-        this.responsePatterns = new ArrayList<>();
-        this.requestPatterns = new ArrayList<>();
-        // this.requestPatterns = getPreference("requestPattern", (Object)(new ArrayList<>()));
-        // this.responsePatterns = getPreference("responsePattern", "data\":\"(.*?)\"");
-        // this.decodeCommand = getPreference("decodeCommand", "node /tmp/crypt/rsaEncrypt.js selfDecrypt --file " + fileMarker);
-        // this.encodeCommand = getPreference("encodeCommand", "node /tmp/crypt/rsaEncrypt.js publicEncrypt " + dataMarker);
-        this.targetPattern = getPreference("targetPattern", "/v1/graphql");
-        this.shouldPatchProxy = getBoolean("shouldPatchProxy", false);
-        this.shouldSaveCommands = getBoolean("shouldSaveCommands", true);
+        this.responsePatterns = getPreference("responsePatterns", new ArrayList<CapturePattern>());
+        this.requestPatterns = getPreference("requestPatterns", new ArrayList<CapturePattern>());
+        this.shouldSaveCommands = getPreference("shouldSaveCommands", true);
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
     }
 
     public CapturePattern[] getActivePatterns(boolean isRequest) {
         ArrayList<CapturePattern> result = new ArrayList<>();
-        var patterns = isRequest ? requestPatterns 
-            : responsePatterns;
+        var patterns = isRequest ? requestPatterns
+                : responsePatterns;
         for (var pattern : patterns) {
             if (pattern.isEnabled())
                 result.add(pattern);
@@ -43,13 +37,13 @@ public class Config implements Serializable {
         return result.toArray(new CapturePattern[0]);
     }
 
-    private boolean getBoolean(String key, boolean defaultValue) {
-        Boolean result = persisted.getBoolean(key);
-        if (result == null) {
+    private boolean getPreference(String key, boolean defaultValue) {
+        Boolean preference = persisted.getBoolean(key);
+        if (preference == null) {
             persisted.setBoolean(key, defaultValue);
-            result = defaultValue;
+            preference = defaultValue;
         }
-        return result;
+        return preference;
     }
 
     private String getPreference(String key, String defaultValue) {
@@ -61,32 +55,31 @@ public class Config implements Serializable {
         return preference;
     }
 
-    // private Object getPreferenceArrayList(String key, ArrayList defaultValue) {
-    //     Object preference = persisted.getChildObject(key);
-    //     if (preference == null) {
-    //         persisted.setChildObject(key, (PersistedObject) defaultValue);
-    //         preference = defaultValue;
-    //     }
-    //     return preference;
-    // }
+    private <T extends Serializable> ArrayList<T> getPreference(String key, ArrayList<T> defaultValue) {
+        try {
+            String serialized = Utils.serialize(defaultValue);
+            String preference = getPreference(key, serialized);
+            return Utils.deserialize(preference);
+        } catch (Exception e) {
+            System.out.println("Failed to load patterns: " + e);
+            return defaultValue;
+        }
+    }
 
-    // public void updateFields(String requestPattern, String responsePattern, String decodeCommand, String encodeCommand, String targetPattern) {
-    //     // this.requestPattern = requestPattern;
-    //     this.persisted.setString("requestPattern", requestPattern);
-    //     // this.responsePattern = responsePattern;
-    //     this.persisted.setString("responsePattern", responsePattern);
-    //     // this.decodeCommand = decodeCommand;
-    //     this.persisted.setString("decodeCommand", decodeCommand);
-    //     // this.encodeCommand = encodeCommand;
-    //     this.persisted.setString("encodeCommand", encodeCommand);
-    //     this.targetPattern = targetPattern;
-    //     this.persisted.setString("targetPattern", targetPattern);
+    private <T extends Serializable> void updatePreference(String key, ArrayList<T> value) throws IOException {
+        this.persisted.setString(key, Utils.serialize(value));
+    }
 
-    // }
-
-    public void updatePatchProxy(boolean shouldPatchProxy) {
-        this.shouldPatchProxy = shouldPatchProxy;
-        this.persisted.setBoolean("shouldPatchProxy", shouldPatchProxy);
+    private void savePatterns(boolean isRequest) {
+        try {
+            if (isRequest) {
+                updatePreference("requestPatterns", requestPatterns);
+            } else {
+                updatePreference("responsePatterns", responsePatterns);
+            }
+        } catch (Exception e) {
+            System.out.println("Failed to save patterns: " + e.getMessage());
+        }
     }
 
     public void updateSaveCommands(boolean shouldSaveCommands) {
@@ -97,8 +90,7 @@ public class Config implements Serializable {
     void setReloadEditors(boolean isRequest) {
         if (isRequest) {
             this.reloadRequestEditors = true;
-        }
-        else {
+        } else {
             this.reloadResponseEditors = true;
         }
     }
@@ -106,32 +98,39 @@ public class Config implements Serializable {
     public void addPattern(CapturePattern newPattern, boolean isRequest) {
         getPatterns(isRequest).add(newPattern);
         setReloadEditors(isRequest);
+        savePatterns(isRequest);
     }
 
     public void clonePattern(int index, boolean isRequest) {
         CapturePattern pattern = getPatterns(isRequest).get(index);
-        CapturePattern newPattern = new CapturePattern(pattern.getName(), pattern.getRegex(), pattern.getDecCommand(), pattern.getEncCommand(), pattern.isEnabled());
+        CapturePattern newPattern = pattern.clone();
+        newPattern.setName("Pattern " + (getPatterns(isRequest).size() + 1));
         addPattern(newPattern, isRequest);
         setReloadEditors(isRequest);
+        savePatterns(isRequest);
     }
 
     public void editPattern(int index, CapturePattern newPattern, boolean isRequest) {
         getPatterns(isRequest).set(index, newPattern);
         setReloadEditors(isRequest);
+        savePatterns(isRequest);
     }
 
     public void movePattern(int currentIndex, int newIndex, boolean isRequest) {
-        if (newIndex < 0 || newIndex > getPatterns(isRequest).size() - 1) return;
+        if (newIndex < 0 || newIndex > getPatterns(isRequest).size() - 1)
+            return;
         CapturePattern newValue = getPatterns(isRequest).get(newIndex);
         CapturePattern currentValue = getPatterns(isRequest).get(currentIndex);
         editPattern(newIndex, currentValue, isRequest);
         editPattern(currentIndex, newValue, isRequest);
         setReloadEditors(isRequest);
+        savePatterns(isRequest);
     }
 
     public void removePattern(int index, boolean isRequest) {
         getPatterns(isRequest).remove(index);
         setReloadEditors(isRequest);
+        savePatterns(isRequest);
     }
 
     public ArrayList<CapturePattern> getPatterns(boolean isRequest) {
@@ -142,18 +141,10 @@ public class Config implements Serializable {
         return patterns;
     }
 
-    public String getTargetPattern() {
-        return targetPattern;
-    }
-		
-    public boolean shouldPatchProxy() {
-        return shouldPatchProxy;
-    }
-
     public boolean shouldSaveCommands() {
         return shouldSaveCommands;
     }
-    
+
     public String getCommand(String cipherText, String defaultCommand) {
         String hash = Utils.getHash(cipherText.getBytes());
         String commandLoaded = this.persisted.getString(cmdKeyPrefix + hash);
@@ -177,15 +168,5 @@ public class Config implements Serializable {
             return result;
         }
     }
-
-    // public int getSizeCommands() {
-    //     int counter = 0;
-    //     for (String key : persisted.stringKeys()) {
-    //         if (key.startsWith(cmdKeyPrefix)) {
-    //             counter++;
-    //         }
-    //     }
-    //     return counter;
-    // }
 
 }
