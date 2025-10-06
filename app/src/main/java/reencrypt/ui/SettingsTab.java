@@ -330,8 +330,61 @@ public class SettingsTab {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateSaveCommands(isSelected);
         });
-
         panel.add(saveCommands);
+
+        panel.add(new JLabel(), BorderLayout.NORTH);
+
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("Print Tab Settings");
+        panel.add(jlabel, BorderLayout.NORTH);
+
+
+
+        JCheckBox enableRequestPrintTab = new JCheckBox(
+                "Enable a read-only Print Tab for requests. Useful for taking screenshots.",
+                config.isPrintEditorEnabled(true));
+        JCheckBox requestEscapeDoubleQuotes = new JCheckBox(
+                "Escape double quotes in decoded values within the Print Tab for requests. This may improve how the content is displayed.",
+                config.isEscapingDoubleQuotes(true));
+        requestEscapeDoubleQuotes.setEnabled(enableRequestPrintTab.isSelected());
+        
+        enableRequestPrintTab.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShowPrintEditor(isSelected, true);
+            requestEscapeDoubleQuotes.setEnabled(enableRequestPrintTab.isSelected());
+        });
+        panel.add(enableRequestPrintTab);
+
+        requestEscapeDoubleQuotes.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShouldEscapeDoubleQuotes(isSelected, true);
+        });
+        requestEscapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
+        panel.add(requestEscapeDoubleQuotes);
+
+
+        JCheckBox enableResponsePrintTab = new JCheckBox(
+                "Enable a read-only Print Tab for responses. Useful for taking screenshots.",
+                config.isPrintEditorEnabled(false));
+        JCheckBox responseEscapeDoubleQuotes = new JCheckBox(
+                "Escape double quotes in decoded values within the Print Tab for responses. This may improve how the content is displayed.",
+                config.isEscapingDoubleQuotes(false));
+        responseEscapeDoubleQuotes.setEnabled(enableResponsePrintTab.isSelected());
+        
+        enableResponsePrintTab.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShowPrintEditor(isSelected, false);
+            responseEscapeDoubleQuotes.setEnabled(enableResponsePrintTab.isSelected());
+        });
+        panel.add(enableResponsePrintTab);
+
+        responseEscapeDoubleQuotes.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShouldEscapeDoubleQuotes(isSelected, false);
+        });
+        responseEscapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
+        panel.add(responseEscapeDoubleQuotes);
 
         painelBorderLayout.add(panel, BorderLayout.NORTH);
 

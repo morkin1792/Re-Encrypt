@@ -27,6 +27,14 @@ public class ReEncrypt {
         return patchRequest(request, beginIndex, endIndex, cipherText.getBytes());
     }
 
+    public byte[] matchReplace(byte[] request, CapturePattern pattern, String newValue)
+        throws PatternException {
+        int[] indexes = searchPattern(pattern.getPatternRegex(), request);
+        int beginIndex = indexes[0];
+        int endIndex = indexes[1];
+        return patchRequest(request, beginIndex, endIndex, newValue.getBytes());
+    }
+
     public String encrypt(String rawCommand, String plainText) throws IOException, InterruptedException {
         ShellCommand command = new ShellCommand(rawCommand, plainText);
         String cipherText = command.execute();

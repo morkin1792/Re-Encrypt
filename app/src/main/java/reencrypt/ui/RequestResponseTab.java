@@ -30,6 +30,7 @@ public class RequestResponseTab {
 
     private MontoyaApi api;
     private ArrayList<RequestResponseEditor> editors;
+    private RequestResponseEditor printEditor;
     private final JPanel panel;
     private final JTextArea errorArea;
     private final Font hackFont;
@@ -122,6 +123,14 @@ public class RequestResponseTab {
             editors.add(newEditor);
 
         }
+        if (reEncrypt.getConfig().isPrintEditorEnabled(isRequest)) {
+            if (isRequest) {
+                printEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
+            } else {
+                printEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
+            }
+        }
+        boolean atLeastOneTab = false;
 
         System.out.println("middle of reloading editors.");
         for (var editor : editors) {
@@ -135,10 +144,14 @@ public class RequestResponseTab {
                 ReEncrypt.searchPattern(editor.getPattern().getPatternRegex(), cachedContentFromIsEnabledFor);
                 tabbedPane.add(editor.getPattern().getName(), editor.uiComponent());
                 System.out.println("adding tabs " + editor.getPattern().getName());
+                atLeastOneTab = true;
             } catch (Exception e) {
                 System.out.println(editors.size() + " editors found.");
                 System.out.println("not adding tab " + editor + " because pattern not found." + e);
             }
+        }
+        if (atLeastOneTab && printEditor != null) {
+            tabbedPane.add("Print Tab", printEditor.uiComponent());
         }
 
         // restoring the index of the modified tab
@@ -175,6 +188,9 @@ public class RequestResponseTab {
         HttpRequest request = requestResponse.request();
         String url;
         try {
+            if (request == null) {
+                return false;
+            }
             url = request.url();
         } catch (MalformedRequestException e) {
             return false;
@@ -215,28 +231,40 @@ public class RequestResponseTab {
             return;
 
         this.cachedContentFromSetBytes = content;
+        byte[] printEditorContent = content;
         for (var editor : editors) {
             System.out.println("looking for regex: " + editor.getPattern().getPatternRegex());
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
-                // editor.setEnabled(true);
                 String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes);
                 editor.setBytes(plainText.getBytes("Windows-1252"));
+                if (printEditor != null) {
+                    if (reEncrypt.getConfig().isEscapingDoubleQuotes(isRequest)) {
+                        plainText = plainText.replace("\"", "\\\"");
+                    }
+                    printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText);
+                }
                 showMessage("");
             } catch (PatternException e) {
                 editor.setBytes("[-] pattern not found".getBytes());
             } catch (Exception e) {
                 System.out.println("exception in setBytes: " + e);
-                // editor.setBytes("".getBytes());
-                // editor.setEnabled(false);
-                // showMessage(e.getMessage());
             }
         }
-        // trying to restore the caret position
-        if (cachedLastModifiedIndex >= 0 && cachedLastModifiedIndex < editors.size()) {
-            var editor = editors.get(cachedLastModifiedIndex);
-            System.out.println("restoring caret position to " + cachedCaretPosition);
-            editor.setCaretPosition(cachedCaretPosition);
+        // setting printEditor
+        if (printEditor != null) {
+            printEditor.setBytes(printEditorContent);
+        }
+
+        try {
+            // trying to restore the caret position
+            if (cachedLastModifiedIndex >= 0 && cachedLastModifiedIndex < editors.size()) {
+                var editor = editors.get(cachedLastModifiedIndex);
+                System.out.println("restoring caret position to " + cachedCaretPosition);
+                editor.setCaretPosition(cachedCaretPosition);
+            }
+        } catch (NoSuchMethodError e) {
+            System.out.println("setCaretPosition error " + e);
         }
 
     }

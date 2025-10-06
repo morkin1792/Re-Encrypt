@@ -14,7 +14,8 @@ public class Config implements Serializable {
 
     ArrayList<CapturePattern> requestPatterns, responsePatterns;
     String decodeCommand, encodeCommand;
-    boolean shouldSaveCommands, reloadRequestEditors, reloadResponseEditors;
+    boolean shouldSaveCommands, enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes,
+            escapeResponseDoubleQuotes, reloadRequestEditors, reloadResponseEditors;
     PersistedObject persisted;
 
     public Config(Persistence persistence) {
@@ -22,6 +23,10 @@ public class Config implements Serializable {
         this.responsePatterns = getPreference("responsePatterns", new ArrayList<CapturePattern>());
         this.requestPatterns = getPreference("requestPatterns", new ArrayList<CapturePattern>());
         this.shouldSaveCommands = getPreference("shouldSaveCommands", true);
+        this.enableRequestPrintEditor = getPreference("enableRequestPrintEditor", true);
+        this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
+        this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
+        this.escapeResponseDoubleQuotes = getPreference("escapeResponseDoubleQuotes", false);
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
     }
@@ -85,6 +90,34 @@ public class Config implements Serializable {
     public void updateSaveCommands(boolean shouldSaveCommands) {
         this.shouldSaveCommands = shouldSaveCommands;
         this.persisted.setBoolean("shouldSaveCommands", shouldSaveCommands);
+    }
+
+    public void updateShowPrintEditor(boolean enablePrintEditor, boolean isRequest) {
+        if (isRequest) {
+            this.enableRequestPrintEditor = enablePrintEditor;
+            this.persisted.setBoolean("enableRequestPrintEditor", enablePrintEditor);
+        } else {
+            this.enableResponsePrintEditor = enablePrintEditor;
+            this.persisted.setBoolean("enableResponsePrintEditor", enablePrintEditor);
+        }
+    }
+
+    public boolean isPrintEditorEnabled(boolean isRequest) {
+        return isRequest ? enableRequestPrintEditor : enableResponsePrintEditor;
+    }
+
+    public void updateShouldEscapeDoubleQuotes(boolean escapeDoubleQuotes, boolean isRequest) {
+        if (isRequest) {
+            this.escapeRequestDoubleQuotes = escapeDoubleQuotes;
+            this.persisted.setBoolean("escapeRequestDoubleQuotes", escapeDoubleQuotes);
+        } else {
+            this.escapeResponseDoubleQuotes = escapeDoubleQuotes;
+            this.persisted.setBoolean("escapeResponseDoubleQuotes", escapeDoubleQuotes);
+        }
+    }
+
+    public boolean isEscapingDoubleQuotes(boolean isRequest) {
+        return isRequest ? escapeRequestDoubleQuotes : escapeResponseDoubleQuotes;
     }
 
     void setReloadEditors(boolean isRequest) {
