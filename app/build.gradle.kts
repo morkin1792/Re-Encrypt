@@ -22,13 +22,6 @@ dependencies {
     implementation("net.portswigger.burp.extensions:montoya-api:2025.8")
 }
 
-// Apply a specific Java toolchain to ease working on different environments.
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
-}
-
 val main = "reencrypt.App"
 
 application {

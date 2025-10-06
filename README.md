@@ -8,7 +8,7 @@ This burp extension allows you to patch parts of requests via command-line tools
 
 Let's re:encode!
 
-Burp Suite v2025.8 or later is recommended!
+Burp Suite v2025.8 or later and Java version 21 or later are recommended.
 
 ![](decrypting)
 ![](config)
@@ -83,14 +83,17 @@ You can find a script that helps make MiTM in RSA [here](TODO).
 ![]()
 
 ## TODO
-- save all the decrypted data to a file log
-- remove old save commands code
-- better UI, intruder support again, ?pre defined/patterns
+- highlighting inside Print Tab
 - why caret is not working?
-- ?pre defined encryption/scripts
-- websockets support
-    // api.userInterface().registerWebSocketMessageEditorProvider();
-    // api.userInterface().createWebSocketMessageEditor
+- intruder support again
+- save all the decrypted data to a file log
+- ?save commands again?
+- remove old save commands code + showMessage
+- ?pre-defined patterns?
+- better UI (layout, buttons)
+- ?pre defined encryption/scripts?
+- websockets support (repeater, automatically patch proxy messages)
+- submit extension to BApp Store
 
 ## Credits
 
