@@ -12,7 +12,7 @@ import burp.api.montoya.ui.editor.extension.HttpRequestEditorProvider;
 import burp.api.montoya.ui.editor.extension.HttpResponseEditorProvider;
 
 public class App implements BurpExtension {
-    public static final String name = "Re:Encrypt";
+    public static final String name = "Re:Encrypt/v1";
 
     public void initialize(MontoyaApi api) {
         
