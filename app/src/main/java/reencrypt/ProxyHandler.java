@@ -35,7 +35,9 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
             if (modified[0]) {
                 HttpRequest newRequest = HttpRequest.httpRequest(requestToBeSent.httpService(),
                         ByteArray.byteArray(requestContent));
-
+                if (newRequest.hasHeader("Content-Length")) {
+                    newRequest = newRequest.withUpdatedHeader("Content-Length", newRequest.body().length() + "");
+                }
                 return ProxyRequestToBeSentAction.continueWith(newRequest,
                         Annotations.annotations().withNotes("modified by " + App.name));
             }
@@ -56,9 +58,11 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
             boolean modified[] = new boolean[] { false };
             responseContent = applyPatch(responseContent, url, false, modified);
             if (modified[0]) {
-                HttpResponse newReponse = HttpResponse.httpResponse(ByteArray.byteArray(responseContent));
-
-                return ProxyResponseToBeSentAction.continueWith(newReponse,
+                HttpResponse newResponse = HttpResponse.httpResponse(ByteArray.byteArray(responseContent));
+                if (newResponse.hasHeader("Content-Length")) {
+                    newResponse = newResponse.withUpdatedHeader("Content-Length", newResponse.body().length() + "");
+                }
+                return ProxyResponseToBeSentAction.continueWith(newResponse,
                         Annotations.annotations().withNotes("modified by " + App.name));
             }
         } catch (Exception e) {

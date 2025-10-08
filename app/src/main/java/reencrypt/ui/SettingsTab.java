@@ -259,7 +259,9 @@ public class SettingsTab {
         panel.add(enabledCheckbox);
 
         JCheckBox patchProxyCheckbox = new JCheckBox(
-                "Automatically patch proxy " + (isRequest ? "requests" : "responses"), false);
+                "Automatically patch proxy " + (isRequest ? "requests" : "responses")
+                        + " (Content-Length will be updated when a patch happens)",
+                false);
         panel.add(patchProxyCheckbox);
 
         if (existingPattern != null) {
@@ -339,8 +341,6 @@ public class SettingsTab {
         jlabel.setText("Print Tab Settings");
         panel.add(jlabel, BorderLayout.NORTH);
 
-
-
         JCheckBox enableRequestPrintTab = new JCheckBox(
                 "Enable a read-only Print Tab for requests. Useful for taking screenshots.",
                 config.isPrintEditorEnabled(true));
@@ -348,7 +348,7 @@ public class SettingsTab {
                 "Escape double quotes in decoded values within the Print Tab for requests. This may improve how the content is displayed.",
                 config.isEscapingDoubleQuotes(true));
         requestEscapeDoubleQuotes.setEnabled(enableRequestPrintTab.isSelected());
-        
+
         enableRequestPrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateShowPrintEditor(isSelected, true);
@@ -363,7 +363,6 @@ public class SettingsTab {
         requestEscapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(requestEscapeDoubleQuotes);
 
-
         JCheckBox enableResponsePrintTab = new JCheckBox(
                 "Enable a read-only Print Tab for responses. Useful for taking screenshots.",
                 config.isPrintEditorEnabled(false));
@@ -371,7 +370,7 @@ public class SettingsTab {
                 "Escape double quotes in decoded values within the Print Tab for responses. This may improve how the content is displayed.",
                 config.isEscapingDoubleQuotes(false));
         responseEscapeDoubleQuotes.setEnabled(enableResponsePrintTab.isSelected());
-        
+
         enableResponsePrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateShowPrintEditor(isSelected, false);
