@@ -2,9 +2,9 @@
 
 This burp extension allows you to patch parts of requests via command-line tools. Use cases include:
 
-* Test applications that have encrypted parameters.
+* Easily view and modify encrypted data through Editor Tab.
+* Create match-replace rules that affect encrypted data through Patch Proxy + sed-like tools.
 * Trigger commands when a specific pattern is detected.
-* Create complex match-replace rules.
 
 Let's re:encode!
 
@@ -87,7 +87,7 @@ You can find a script that helps make MiTM in RSA [here](TODO).
 - why caret is not working?
 - intruder support again
 - save all the decrypted data to a file log
-- ?save commands again?
+- ?save commands again (consider change to xxh algorithm)?
 - remove old save commands code + showMessage
 - ?pre-defined patterns?
 - better UI (layout, buttons)
