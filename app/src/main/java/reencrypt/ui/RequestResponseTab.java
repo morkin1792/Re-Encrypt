@@ -23,6 +23,8 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 
 import java.nio.charset.Charset;
 
@@ -44,7 +46,7 @@ public class RequestResponseTab {
     private Color colorMessage;
     private ReEncrypt reEncrypt;
     private boolean readOnly;
-    private int cachedLastModifiedIndex, cachedCaretPosition;
+    private int tabbedPaneLastSelectedIndex, cachedCaretPosition;
 
     public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
         this.isRequest = isRequest;
@@ -53,7 +55,7 @@ public class RequestResponseTab {
         this.readOnly = readOnly;
 
         this.editors = new ArrayList<>();
-        this.cachedLastModifiedIndex = 0;
+        this.tabbedPaneLastSelectedIndex = 0;
         this.errorMessage = "";
         this.panel = new JPanel(new BorderLayout());
         this.errorArea = new JTextArea(0, 0);
@@ -72,6 +74,13 @@ public class RequestResponseTab {
         errorArea.setEditable(false);
         this.scrollPane = new JScrollPane(errorArea);
         this.tabbedPane = new JTabbedPane();
+        this.tabbedPane.addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                int selectedIndex = tabbedPane.getSelectedIndex();
+                tabbedPaneLastSelectedIndex = selectedIndex;
+            }
+        });
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
         panel.add(scrollPane, BorderLayout.NORTH);
         panel.add(tabbedPane, BorderLayout.CENTER);
@@ -80,18 +89,12 @@ public class RequestResponseTab {
     }
 
     void reloadEditors() {
-        // saving the index of the modified tab
-        int lastModifiedIndex = -1;
-        for (var editor : editors) {
-            if (editor.isModified()) {
-                lastModifiedIndex = tabbedPane.indexOfComponent(editor.uiComponent());
-                cachedLastModifiedIndex = lastModifiedIndex;
-                cachedCaretPosition = editor.caretPosition();
-                break;
-            }
-        }
-        if (lastModifiedIndex == -1) {
-            lastModifiedIndex = cachedLastModifiedIndex;
+
+        // saving last select index && caret position
+        int cachedLastSelectedIndex = this.tabbedPaneLastSelectedIndex;
+        var lastEditor = getLastSelectedEditor();
+        if (lastEditor != null) {
+            cachedCaretPosition = lastEditor.caretPosition();
         }
 
         editors.clear();
@@ -125,9 +128,11 @@ public class RequestResponseTab {
         }
         if (reEncrypt.getConfig().isPrintEditorEnabled(isRequest)) {
             if (isRequest) {
-                printEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
+                printEditor = new RequestResponseEditor(
+                        api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
             } else {
-                printEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
+                printEditor = new RequestResponseEditor(
+                        api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
             }
         }
         boolean atLeastOneTab = false;
@@ -154,14 +159,20 @@ public class RequestResponseTab {
             tabbedPane.add("Print Tab", printEditor.uiComponent());
         }
 
-        // restoring the index of the modified tab
-        if (tabbedPane.getTabCount() > 0 && lastModifiedIndex >= 0 && lastModifiedIndex < tabbedPane.getTabCount()) {
-            tabbedPane.setSelectedIndex(lastModifiedIndex);
-            System.out.println("size of editors: " + editors.size());
-            System.out.println("size of tabbedPane: " + tabbedPane.getTabCount());
-            System.out.println("lastModifiedIndex: " + lastModifiedIndex);
+        // restoring the last selected tab
+        this.tabbedPaneLastSelectedIndex = cachedLastSelectedIndex;
+        if (getLastSelectedEditor() != null) {
+            tabbedPane.setSelectedIndex(tabbedPaneLastSelectedIndex);
         }
+    }
 
+    public RequestResponseEditor getLastSelectedEditor() {
+        if (tabbedPane.getTabCount() > 0 && editors.size() > 0 && tabbedPaneLastSelectedIndex >= 0
+                && tabbedPaneLastSelectedIndex < tabbedPane.getTabCount()) {
+            return (tabbedPaneLastSelectedIndex == tabbedPane.getTabCount() - 1) ? printEditor
+                    : editors.get(tabbedPaneLastSelectedIndex);
+        }
+        return null;
     }
 
     public Component uiComponent() {
@@ -258,9 +269,8 @@ public class RequestResponseTab {
 
         try {
             // trying to restore the caret position
-            if (cachedLastModifiedIndex >= 0 && cachedLastModifiedIndex < editors.size()) {
-                var editor = editors.get(cachedLastModifiedIndex);
-                System.out.println("restoring caret position to " + cachedCaretPosition);
+            var editor = getLastSelectedEditor();
+            if (editor != null) {
                 editor.setCaretPosition(cachedCaretPosition);
             }
         } catch (NoSuchMethodError e) {
@@ -278,6 +288,7 @@ public class RequestResponseTab {
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText);
             } catch (Exception e) {
                 // showMessage(e.toString());
+                System.out.println("getBytes exception: " + e.getMessage());
             }
             // return cachedContentFromSetBytes;
         }
