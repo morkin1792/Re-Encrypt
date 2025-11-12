@@ -25,7 +25,7 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
 
     public void setRequestResponse(HttpRequestResponse requestResponse) {
         httpService = requestResponse.request().httpService();
-        super.setBytes(requestResponse.request().toByteArray().getBytes());
+        super.setBytes(httpService, requestResponse.request().toByteArray().getBytes());
     }
 
 }

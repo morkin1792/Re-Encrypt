@@ -8,6 +8,7 @@ import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
 import reencrypt.CapturePattern;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.core.ByteArray;
 
@@ -62,11 +63,11 @@ public class RequestResponseEditor {
         return pattern;
     }
 
-    public void setBytes(byte[] data) {
+    public void setBytes(HttpService httpService, byte[] data) {
         if (isResponse) {
             httpResponseEditor.setResponse(HttpResponse.httpResponse(ByteArray.byteArray(data)));
         } else {
-            httpRequestEditor.setRequest(HttpRequest.httpRequest(ByteArray.byteArray(data)));
+            httpRequestEditor.setRequest(HttpRequest.httpRequest(httpService, ByteArray.byteArray(data)));
         }
         this.size = data.length;
     }
