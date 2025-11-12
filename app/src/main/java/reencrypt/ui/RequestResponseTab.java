@@ -1,6 +1,7 @@
 package reencrypt.ui;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.requests.MalformedRequestException;
@@ -9,7 +10,7 @@ import burp.api.montoya.ui.editor.EditorOptions;
 import reencrypt.App;
 import reencrypt.CapturePattern;
 import reencrypt.ReEncrypt;
-import reencrypt.exception.PatternException;
+import reencrypt.Utils;
 
 import java.awt.Component;
 import java.awt.BorderLayout;
@@ -17,12 +18,15 @@ import java.awt.Color;
 import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
@@ -235,7 +239,7 @@ public class RequestResponseTab {
         return false;
     }
 
-    public void setBytes(byte[] content) {
+    public void setBytes(HttpService httpService, byte[] content) {
         System.out.println("calling setBytes. " + editors.size() + " editors found.");
         reloadEditors();
         if (content == null)
@@ -243,12 +247,14 @@ public class RequestResponseTab {
 
         this.cachedContentFromSetBytes = content;
         byte[] printEditorContent = content;
+        ArrayList<String> regexes2Highlight = new ArrayList<>();
         for (var editor : editors) {
             System.out.println("looking for regex: " + editor.getPattern().getPatternRegex());
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
                 String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes);
-                editor.setBytes(plainText.getBytes("Windows-1252"));
+                editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
+                regexes2Highlight.add(editor.getPattern().getPatternRegex());
                 if (printEditor != null) {
                     if (reEncrypt.getConfig().isEscapingDoubleQuotes(isRequest)) {
                         plainText = plainText.replace("\"", "\\\"");
@@ -256,27 +262,52 @@ public class RequestResponseTab {
                     printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText);
                 }
                 showMessage("");
-            } catch (PatternException e) {
-                editor.setBytes("[-] pattern not found".getBytes());
             } catch (Exception e) {
                 System.out.println("exception in setBytes: " + e);
             }
         }
-        // setting printEditor
-        if (printEditor != null) {
-            printEditor.setBytes(printEditorContent);
-        }
 
+        setPrintEditor(httpService, printEditorContent, regexes2Highlight);
+        setFocusAndCaret();
+    }
+
+    private void setPrintEditor(HttpService httpService, byte[] printEditorContent,
+            ArrayList<String> regexes2Highlight) {
+        if (printEditor != null) {
+            printEditor.setBytes(httpService, printEditorContent);
+            Component editorComponent = printEditor.uiComponent();
+            boolean isHighlighting = reEncrypt.getConfig().isHighlightingPrintEditor(isRequest);
+            if (isHighlighting && regexes2Highlight.size() > 0) {
+                String regexHighlight = String.join("|", regexes2Highlight);
+                Pattern pattern = Pattern.compile(regexHighlight);
+                var color = reEncrypt.getConfig().getPrintEditorHighlightColor(isRequest);
+                Utils.highlightTextComponents(editorComponent, pattern, color);
+            }
+        }
+    }
+
+    private void setFocusAndCaret() {
         try {
-            // trying to restore the caret position
             var editor = getLastSelectedEditor();
             if (editor != null) {
+                // set caret
                 editor.setCaretPosition(cachedCaretPosition);
+
+                // set focus
+                SwingUtilities.invokeLater(() -> {
+                    // IMPROVEME: find and implement a way to set the focus without a timer
+                    Timer timer = new Timer(100, e -> {
+                        Component editorComponent = getLastSelectedEditor().uiComponent();
+                        var textComponent = Utils.findFirstTextComponent(editorComponent);
+                        textComponent.requestFocusInWindow();
+                    });
+                    timer.setRepeats(false);
+                    timer.start();
+                });
             }
         } catch (NoSuchMethodError e) {
-            System.out.println("setCaretPosition error " + e);
+            System.out.println("setCaretPosition not defined in this burp version " + e);
         }
-
     }
 
     public byte[] getBytes() {

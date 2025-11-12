@@ -1,5 +1,6 @@
 package reencrypt;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -15,7 +16,9 @@ public class Config implements Serializable {
     ArrayList<CapturePattern> requestPatterns, responsePatterns;
     String decodeCommand, encodeCommand;
     boolean shouldSaveCommands, enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes,
-            escapeResponseDoubleQuotes, reloadRequestEditors, reloadResponseEditors;
+            escapeResponseDoubleQuotes, highlightRequestPrintEditor, highlightResponsePrintEditor, reloadRequestEditors,
+            reloadResponseEditors;
+    Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
     PersistedObject persisted;
 
     public Config(Persistence persistence) {
@@ -27,6 +30,12 @@ public class Config implements Serializable {
         this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
         this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
         this.escapeResponseDoubleQuotes = getPreference("escapeResponseDoubleQuotes", false);
+        this.highlightRequestPrintEditor = getPreference("highlightRequestPrintEditor", true);
+        this.highlightResponsePrintEditor = getPreference("highlightResponsePrintEditor", true);
+        this.reqPrintEditorHighlightColor = new Color(
+                getPreference("reqPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
+        this.resPrintEditorHighlightColor = new Color(
+                getPreference("resPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
     }
@@ -40,6 +49,15 @@ public class Config implements Serializable {
                 result.add(pattern);
         }
         return result.toArray(new CapturePattern[0]);
+    }
+
+    private int getPreference(String key, int defaultValue) {
+        Integer preference = persisted.getInteger(key);
+        if (preference == null) {
+            persisted.setInteger(key, defaultValue);
+            preference = defaultValue;
+        }
+        return preference;
     }
 
     private boolean getPreference(String key, boolean defaultValue) {
@@ -116,8 +134,36 @@ public class Config implements Serializable {
         }
     }
 
+    public void updateHighlightPrintEditor(boolean highlightPrintEditor, boolean isRequest) {
+        if (isRequest) {
+            this.highlightRequestPrintEditor = highlightPrintEditor;
+            this.persisted.setBoolean("highlightRequestPrintEditor", highlightPrintEditor);
+        } else {
+            this.highlightResponsePrintEditor = highlightPrintEditor;
+            this.persisted.setBoolean("highlightResponsePrintEditor", highlightPrintEditor);
+        }
+    }
+
+    public void updatePrintEditorHighlightColor(Color color, boolean isRequest) {
+        if (isRequest) {
+            this.reqPrintEditorHighlightColor = color;
+            this.persisted.setInteger("reqPrintEditorHighlightColor", color.getRGB());
+        } else {
+            this.resPrintEditorHighlightColor = color;
+            this.persisted.setInteger("resPrintEditorHighlightColor", color.getRGB());
+        }
+    }
+
     public boolean isEscapingDoubleQuotes(boolean isRequest) {
         return isRequest ? escapeRequestDoubleQuotes : escapeResponseDoubleQuotes;
+    }
+
+    public boolean isHighlightingPrintEditor(boolean isRequest) {
+        return isRequest ? highlightRequestPrintEditor : highlightResponsePrintEditor;
+    }
+
+    public Color getPrintEditorHighlightColor(boolean isRequest) {
+        return isRequest ? reqPrintEditorHighlightColor : resPrintEditorHighlightColor;
     }
 
     void setReloadEditors(boolean isRequest) {

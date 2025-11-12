@@ -22,7 +22,7 @@ public class ResponseTab extends RequestResponseTab implements ExtensionProvided
     }
 
     public void setRequestResponse(HttpRequestResponse requestResponse) {
-        super.setBytes(requestResponse.response().toByteArray().getBytes());
+        super.setBytes(requestResponse.httpService(), requestResponse.response().toByteArray().getBytes());
     }
 
 }

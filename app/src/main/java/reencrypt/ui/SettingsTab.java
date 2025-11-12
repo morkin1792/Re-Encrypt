@@ -1,16 +1,34 @@
 package reencrypt.ui;
 
-import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
 
 import reencrypt.CapturePattern;
 import reencrypt.Config;
 
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Arrays;
+
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
 import javax.swing.border.EmptyBorder;
 
 public class SettingsTab {
@@ -24,9 +42,9 @@ public class SettingsTab {
     public Component uiComponent() {
         JTabbedPane tabbedPane = new JTabbedPane();
 
-        tabbedPane.add("Capturing Data / Processing", createCaptureDataScreen());
+        tabbedPane.add("Capturing + Processing", createCaptureDataScreen());
 
-        tabbedPane.add("(TODO) Match / Replace", null);
+        tabbedPane.add("(TODO) WebSockets ", null);
         tabbedPane.setEnabledAt(1, false);
 
         tabbedPane.add("Extra Settings", createSettingsScreen());
@@ -38,7 +56,7 @@ public class SettingsTab {
         JPanel subpanel = new JPanel(new GridLayout(1, 3));
         subpanel.add(createCaptureDataTable("Request", true));
         subpanel.add(createCaptureDataTable("Response", false));
-        return addPanelInternalText("Set regexs to define the parts that will be re:encrypted / re:encoded", subpanel);
+        return addPanelInternalText("• Set regexs to define what will be re:encrypted / re:encoded", subpanel);
     }
 
     private JPanel createCaptureDataTable(String title, boolean isRequest) {
@@ -234,7 +252,7 @@ public class SettingsTab {
 
         JTextField regexField = new JTextField();
         regexField.setToolTipText("Enter the regex to match the part of the data you want to capture.");
-        panel.add(new JLabel("Pattern Regex (So, case sensitive)"));
+        panel.add(new JLabel("Pattern Regex (then, case sensitive)"));
         panel.add(regexField);
 
         JTextField scopeField = new JTextField();
@@ -332,62 +350,69 @@ public class SettingsTab {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateSaveCommands(isSelected);
         });
+        saveCommands.setEnabled(false);
         panel.add(saveCommands);
 
-        panel.add(new JLabel(), BorderLayout.NORTH);
-
-        JLabel jlabel = new JLabel();
-        jlabel.setFont(hackFont);
-        jlabel.setText("Print Tab Settings");
-        panel.add(jlabel, BorderLayout.NORTH);
-
-        JCheckBox enableRequestPrintTab = new JCheckBox(
-                "Enable a read-only Print Tab for requests. Useful for taking screenshots.",
-                config.isPrintEditorEnabled(true));
-        JCheckBox requestEscapeDoubleQuotes = new JCheckBox(
-                "Escape double quotes in decoded values within the Print Tab for requests. This may improve how the content is displayed.",
-                config.isEscapingDoubleQuotes(true));
-        requestEscapeDoubleQuotes.setEnabled(enableRequestPrintTab.isSelected());
-
-        enableRequestPrintTab.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateShowPrintEditor(isSelected, true);
-            requestEscapeDoubleQuotes.setEnabled(enableRequestPrintTab.isSelected());
-        });
-        panel.add(enableRequestPrintTab);
-
-        requestEscapeDoubleQuotes.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateShouldEscapeDoubleQuotes(isSelected, true);
-        });
-        requestEscapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
-        panel.add(requestEscapeDoubleQuotes);
-
-        JCheckBox enableResponsePrintTab = new JCheckBox(
-                "Enable a read-only Print Tab for responses. Useful for taking screenshots.",
-                config.isPrintEditorEnabled(false));
-        JCheckBox responseEscapeDoubleQuotes = new JCheckBox(
-                "Escape double quotes in decoded values within the Print Tab for responses. This may improve how the content is displayed.",
-                config.isEscapingDoubleQuotes(false));
-        responseEscapeDoubleQuotes.setEnabled(enableResponsePrintTab.isSelected());
-
-        enableResponsePrintTab.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateShowPrintEditor(isSelected, false);
-            responseEscapeDoubleQuotes.setEnabled(enableResponsePrintTab.isSelected());
-        });
-        panel.add(enableResponsePrintTab);
-
-        responseEscapeDoubleQuotes.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateShouldEscapeDoubleQuotes(isSelected, false);
-        });
-        responseEscapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
-        panel.add(responseEscapeDoubleQuotes);
+        createPrintTabSettings(panel, true);
+        createPrintTabSettings(panel, false);
 
         painelBorderLayout.add(panel, BorderLayout.NORTH);
 
-        return addPanelInternalText("Optionally, configure the settings", painelBorderLayout);
+        return addPanelInternalText("• Optionally, adjust the settings", painelBorderLayout);
+    }
+
+    private void createPrintTabSettings(JPanel panel, boolean isRequest) {
+        String currentString = isRequest ? "requests" : "responses";
+        panel.add(new JLabel(), BorderLayout.NORTH);
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("Print Tab for " + currentString);
+        panel.add(jlabel, BorderLayout.NORTH);
+        JCheckBox enablePrintTab = new JCheckBox(
+                String.format("Enable a read-only Print Tab for %s. Useful for taking screenshots.", currentString),
+                config.isPrintEditorEnabled(isRequest));
+        JCheckBox escapeDoubleQuotes = new JCheckBox(
+                String.format("Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.", currentString),
+                config.isEscapingDoubleQuotes(isRequest));
+        escapeDoubleQuotes.setEnabled(enablePrintTab.isSelected());
+        JCheckBox highlightPrintTab = new JCheckBox(
+                "Highlight patterns found in Print Tab for " + currentString,
+                config.isHighlightingPrintEditor(isRequest));
+        highlightPrintTab.setEnabled(enablePrintTab.isSelected());
+        CircularColorButton colorButton = new CircularColorButton("▪ Select a color:", null, config.getPrintEditorHighlightColor(isRequest), 20);
+        colorButton.setEnabled(enablePrintTab.isSelected() && highlightPrintTab.isSelected());
+
+        enablePrintTab.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShowPrintEditor(isSelected, isRequest);
+            escapeDoubleQuotes.setEnabled(isSelected);
+            highlightPrintTab.setEnabled(isSelected);
+            colorButton.setEnabled(isSelected && highlightPrintTab.isSelected());
+        });
+        panel.add(enablePrintTab);
+
+        escapeDoubleQuotes.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateShouldEscapeDoubleQuotes(isSelected, isRequest);
+        });
+        escapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
+        panel.add(escapeDoubleQuotes);
+        
+        highlightPrintTab.addItemListener(state -> {
+            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
+            config.updateHighlightPrintEditor(isSelected, isRequest);
+            colorButton.setEnabled(isSelected);
+        });
+        
+        highlightPrintTab.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
+        panel.add(highlightPrintTab);
+
+        colorButton.setColorAction((color) -> {
+            config.updatePrintEditorHighlightColor(color, isRequest);
+            return null;
+        });
+        colorButton.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
+        panel.add(colorButton);
     }
 
     private int moveRow(DefaultTableModel model, int fromIndex, int toIndex) {
