@@ -95,6 +95,7 @@ You can find a script that helps make MiTM in RSA [here](TODO).
 - ?pre-defined patterns?
 - better UI (layout, buttons)
 - ?pre defined encryption/scripts?
+- test intercept req and res
 - websockets support (repeater, automatically patch proxy messages)
 - submit extension to BApp Store
 
