@@ -18,17 +18,22 @@ public class ReEncrypt {
         return config;
     }
 
-    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern, String plainText)
+    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern,
+            String plainText, LogData logData)
             throws IOException, InterruptedException, PatternException {
         int[] indexes = searchPattern(pattern.getPatternRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = encrypt(pattern.getEncCommand(), plainText);
+        if (pattern.shouldSaveToLog()) {
+            logData.update(cipherText, plainText, pattern.getName(), "Encrypt");
+            config.writeLog(logData);
+        }
         return patchRequest(request, beginIndex, endIndex, cipherText.getBytes());
     }
 
     public byte[] matchReplace(byte[] request, CapturePattern pattern, String newValue)
-        throws PatternException {
+            throws PatternException {
         int[] indexes = searchPattern(pattern.getPatternRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
@@ -60,13 +65,18 @@ public class ReEncrypt {
         throw new PatternException(regex);
     }
 
-    public String searchAndDecrypt(CapturePattern pattern, byte[] content)
+    public String searchAndDecrypt(CapturePattern pattern, byte[] content, LogData logData)
             throws IOException, InterruptedException, PatternException {
         int[] indexes = searchPattern(pattern.getPatternRegex(), content);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = new String(content).substring(beginIndex, endIndex);
-        return decrypt(pattern.getDecCommand(), cipherText);
+        String plainText = decrypt(pattern.getDecCommand(), cipherText);
+        if (pattern.shouldSaveToLog()) {
+            logData.update(cipherText, plainText, pattern.getName(), "Decrypt");
+            config.writeLog(logData);
+        }
+        return plainText;
     }
 
     String decrypt(String decCommand, String cipherText) throws IOException, InterruptedException {

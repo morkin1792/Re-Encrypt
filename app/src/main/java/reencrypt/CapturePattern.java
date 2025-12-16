@@ -4,14 +4,14 @@ import java.io.Serializable;
 import java.util.regex.Pattern;
 
 public class CapturePattern implements Serializable {
-    boolean enabled, patchProxy;
+    boolean enabled, patchProxy, cacheCommands, saveToLog;
     String name;
     String patternRegex;
     String urlTargetRegex;
     String decCommand, encCommand;
 
     public CapturePattern(String name, String patternRegex, String urlTargetRegex, String decCommand, String encCommand,
-            boolean enabled, boolean patchProxy) {
+            boolean enabled, boolean patchProxy, boolean cacheCommands, boolean saveToLog) {
         this.enabled = enabled;
         this.patternRegex = patternRegex;
         this.urlTargetRegex = urlTargetRegex;
@@ -19,14 +19,12 @@ public class CapturePattern implements Serializable {
         this.decCommand = decCommand;
         this.encCommand = encCommand;
         this.patchProxy = patchProxy;
+        this.cacheCommands = cacheCommands;
+        this.saveToLog = saveToLog;
     }
 
     public boolean isEnabled() {
         return enabled;
-    }
-
-    public boolean isAutoPatchProxy() {
-        return patchProxy;
     }
 
     public String getPatternRegex() {
@@ -45,8 +43,16 @@ public class CapturePattern implements Serializable {
         return patchProxy && isTarget(url);
     }
 
-    public boolean getPatchProxy() {
+    public boolean shouldPatchProxy() {
         return patchProxy;
+    }
+
+    public boolean shouldCacheCommands() {
+        return cacheCommands;
+    }
+
+    public boolean shouldSaveToLog() {
+        return saveToLog;
     }
 
     public String getName() {
@@ -66,6 +72,7 @@ public class CapturePattern implements Serializable {
     }
 
     public CapturePattern clone() {
-        return new CapturePattern(name, patternRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy);
+        return new CapturePattern(name, patternRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy,
+                cacheCommands, saveToLog);
     }
 }

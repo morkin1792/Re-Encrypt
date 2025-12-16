@@ -9,8 +9,8 @@ import burp.api.montoya.core.ByteArray;
 
 public class ResponseTab extends RequestResponseTab implements ExtensionProvidedHttpResponseEditor {
 
-    public ResponseTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
-        super(false, api, reEncrypt, readOnly);
+    public ResponseTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly, String toolType) {
+        super(false, api, reEncrypt, readOnly, toolType);
     }
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse) {
@@ -22,7 +22,9 @@ public class ResponseTab extends RequestResponseTab implements ExtensionProvided
     }
 
     public void setRequestResponse(HttpRequestResponse requestResponse) {
-        super.setBytes(requestResponse.httpService(), requestResponse.response().toByteArray().getBytes());
+        super.setBytes(requestResponse.httpService(),
+                requestResponse.request().method(), requestResponse.request().url(),
+                requestResponse.response().toByteArray().getBytes());
     }
 
 }

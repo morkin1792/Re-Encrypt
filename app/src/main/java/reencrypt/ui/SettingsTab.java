@@ -16,12 +16,14 @@ import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.File;
 import java.util.Arrays;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -67,7 +69,7 @@ public class SettingsTab {
         jlabel.setText(title);
         panel.add(jlabel, BorderLayout.NORTH);
 
-        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Pattern Regex", "Target", "Patch Proxy",
+        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Pattern Regex", "Target", "Re-Encrypt Proxy",
                 "Dec(ode|rypt) Command", "Enc(ode|rypt) Command" };
 
         // Creating tables
@@ -77,7 +79,7 @@ public class SettingsTab {
                 switch (getColumnName(columnIndex)) {
                     case "Enabled":
                         return Boolean.class;
-                    case "Patch Proxy":
+                    case "Re-Encrypt Proxy":
                         return Boolean.class;
                 }
                 return super.getColumnClass(columnIndex);
@@ -100,7 +102,7 @@ public class SettingsTab {
         columnModel.getColumn(1).setPreferredWidth(70); // "Name"
         columnModel.getColumn(2).setPreferredWidth(100); // "Pattern Regex"
         columnModel.getColumn(3).setPreferredWidth(50); // "Target"
-        columnModel.getColumn(4).setPreferredWidth(50); // "Patch Proxy"
+        columnModel.getColumn(4).setPreferredWidth(50); // "Re-Encrypt Proxy"
         columnModel.getColumn(5).setPreferredWidth(300); // "Decode|Crypt"
         columnModel.getColumn(6).setPreferredWidth(300); // "Encode|Crypt"
 
@@ -277,10 +279,20 @@ public class SettingsTab {
         panel.add(enabledCheckbox);
 
         JCheckBox patchProxyCheckbox = new JCheckBox(
-                "Automatically patch proxy " + (isRequest ? "requests" : "responses")
-                        + " (Content-Length will be updated when a patch happens)",
+                "Automatically re-encrypt proxy " + (isRequest ? "requests" : "responses")
+                        + " (if Log data is enabled, they also will be logged)",
                 false);
         panel.add(patchProxyCheckbox);
+
+        JCheckBox cacheCommandsCheckbox = new JCheckBox(
+                "Cache system for commands (if a command fails, a cached output will be loaded)",
+                true);
+        panel.add(cacheCommandsCheckbox);
+
+        JCheckBox saveToLogCheckbox = new JCheckBox(
+                "Log data to the file defined in Settings (allowing easy search later)",
+                true);
+        panel.add(saveToLogCheckbox);
 
         if (existingPattern != null) {
             // If editing an existing pattern, populate the fields with its data
@@ -290,7 +302,9 @@ public class SettingsTab {
             encCommand.setText(existingPattern.getEncCommand());
             decCommand.setText(existingPattern.getDecCommand());
             enabledCheckbox.setSelected(existingPattern.isEnabled());
-            patchProxyCheckbox.setSelected(existingPattern.getPatchProxy());
+            patchProxyCheckbox.setSelected(existingPattern.shouldPatchProxy());
+            cacheCommandsCheckbox.setSelected(existingPattern.shouldCacheCommands());
+            saveToLogCheckbox.setSelected(existingPattern.shouldSaveToLog());
         } else {
             // If creating a new pattern, set placeholders
             // setPlaceholder(regexField, "data\":\"(.*?)\"");
@@ -329,7 +343,9 @@ public class SettingsTab {
                         decCommand.getText(),
                         encCommand.getText(),
                         enabledCheckbox.isSelected(),
-                        patchProxyCheckbox.isSelected());
+                        patchProxyCheckbox.isSelected(),
+                        cacheCommandsCheckbox.isSelected(),
+                        saveToLogCheckbox.isSelected());
             } else {
                 JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern regex.", "Error",
                         JOptionPane.ERROR_MESSAGE);
@@ -342,16 +358,53 @@ public class SettingsTab {
         JPanel painelBorderLayout = new JPanel(new BorderLayout());
         JPanel panel = new JPanel(new GridLayout(15, 1));
 
-        // TODO: remove this setting?
-        JCheckBox saveCommands = new JCheckBox(
-                "Save the commands used to decrypt / decode. Recommended if you need to update them often.",
-                config.shouldSaveCommands());
-        saveCommands.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateSaveCommands(isSelected);
+        // File chooser row panel
+        JPanel fileChooserPanel = new JPanel(new BorderLayout(5, 0));
+        fileChooserPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+        JLabel logFileLabel = new JLabel("Log File:");
+
+        // Default file path in user's home directory (cross-platform)
+        JTextField logFileField = new JTextField(config.getLogFilePath());
+        logFileField.setEditable(false);
+
+        JButton button = new JButton("Choose file...");
+
+        button.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                JFileChooser fileChooser = new JFileChooser();
+                String currentPath = logFileField.getText();
+                if (currentPath != null && !currentPath.isEmpty()) {
+                    File currentFile = new File(currentPath);
+                    if (currentFile.getParentFile() != null && currentFile.getParentFile().exists()) {
+                        fileChooser.setCurrentDirectory(currentFile.getParentFile());
+                    }
+                    if (currentFile.exists()) {
+                        fileChooser.setSelectedFile(currentFile);
+                    }
+                }
+                int returnValue = fileChooser.showOpenDialog(null);
+
+                if (returnValue == JFileChooser.APPROVE_OPTION) {
+                    String path = fileChooser.getSelectedFile().getAbsolutePath();
+                    try {
+                        config.updateLogFilePath(path);
+                        logFileField.setText(path);
+                    } catch (java.io.IOException ex) {
+                        JOptionPane.showMessageDialog(null,
+                                "Failed to update log file path: " + ex.getMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }
         });
-        saveCommands.setEnabled(false);
-        panel.add(saveCommands);
+
+        fileChooserPanel.add(logFileLabel, BorderLayout.WEST);
+        fileChooserPanel.add(logFileField, BorderLayout.CENTER);
+        fileChooserPanel.add(button, BorderLayout.EAST);
+
+        panel.add(fileChooserPanel);
 
         createPrintTabSettings(panel, true);
         createPrintTabSettings(panel, false);
@@ -372,14 +425,17 @@ public class SettingsTab {
                 String.format("Enable a read-only Print Tab for %s. Useful for taking screenshots.", currentString),
                 config.isPrintEditorEnabled(isRequest));
         JCheckBox escapeDoubleQuotes = new JCheckBox(
-                String.format("Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.", currentString),
+                String.format(
+                        "Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.",
+                        currentString),
                 config.isEscapingDoubleQuotes(isRequest));
         escapeDoubleQuotes.setEnabled(enablePrintTab.isSelected());
         JCheckBox highlightPrintTab = new JCheckBox(
                 "Highlight patterns found in Print Tab for " + currentString,
                 config.isHighlightingPrintEditor(isRequest));
         highlightPrintTab.setEnabled(enablePrintTab.isSelected());
-        CircularColorButton colorButton = new CircularColorButton("▪ Select a color:", null, config.getPrintEditorHighlightColor(isRequest), 20);
+        CircularColorButton colorButton = new CircularColorButton("▪ Select a color:", null,
+                config.getPrintEditorHighlightColor(isRequest), 20);
         colorButton.setEnabled(enablePrintTab.isSelected() && highlightPrintTab.isSelected());
 
         enablePrintTab.addItemListener(state -> {
@@ -397,13 +453,13 @@ public class SettingsTab {
         });
         escapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(escapeDoubleQuotes);
-        
+
         highlightPrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateHighlightPrintEditor(isSelected, isRequest);
             colorButton.setEnabled(isSelected);
         });
-        
+
         highlightPrintTab.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(highlightPrintTab);
 
@@ -464,7 +520,7 @@ public class SettingsTab {
                     updatedPattern.getName(),
                     updatedPattern.getPatternRegex(),
                     updatedPattern.getURLTargetRegex(),
-                    updatedPattern.getPatchProxy(),
+                    updatedPattern.shouldPatchProxy(),
                     updatedPattern.getDecCommand(),
                     updatedPattern.getEncCommand()
             });
