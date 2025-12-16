@@ -2,6 +2,7 @@ package reencrypt;
 
 import burp.api.montoya.core.Annotations;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.proxy.http.InterceptedRequest;
@@ -31,7 +32,8 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
             byte[] requestContent = requestToBeSent.toByteArray().getBytes();
             String url = requestToBeSent.url();
             boolean modified[] = new boolean[] { false };
-            requestContent = applyPatch(requestContent, url, true, modified);
+            LogData logData = new LogData(ToolType.PROXY.toolName(), true, requestToBeSent.method(), url);
+            requestContent = applyPatch(requestContent, url, true, logData, modified);
             if (modified[0]) {
                 HttpRequest newRequest = HttpRequest.httpRequest(requestToBeSent.httpService(),
                         ByteArray.byteArray(requestContent));
@@ -56,7 +58,9 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
             byte[] responseContent = responseToBeSent.toByteArray().getBytes();
             String url = responseToBeSent.request().url();
             boolean modified[] = new boolean[] { false };
-            responseContent = applyPatch(responseContent, url, false, modified);
+
+            LogData logData = new LogData(ToolType.PROXY.toolName(), false, responseToBeSent.request().method(), url);
+            responseContent = applyPatch(responseContent, url, false, logData, modified);
             if (modified[0]) {
                 HttpResponse newResponse = HttpResponse.httpResponse(ByteArray.byteArray(responseContent));
                 if (newResponse.hasHeader("Content-Length")) {
@@ -71,13 +75,14 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
         return ProxyResponseToBeSentAction.continueWith(responseToBeSent);
     }
 
-    public byte[] applyPatch(byte[] content, String url, boolean isRequest, boolean[] refModified) {
+    byte[] applyPatch(byte[] content, String url, boolean isRequest, LogData logData, boolean[] refModified) {
         for (var pattern : reEncrypt.getConfig().getActivePatterns(isRequest)) {
             if (!pattern.shouldPatchProxy(url))
                 continue;
             try {
-                String plainText = reEncrypt.searchAndDecrypt(pattern, content);
-                content = reEncrypt.encryptAndPatch(content, pattern, plainText);
+
+                String plainText = reEncrypt.searchAndDecrypt(pattern, content, logData);
+                content = reEncrypt.encryptAndPatch(content, pattern, plainText, logData);
                 refModified[0] = true;
             } catch (Exception e) {
                 System.out.println("Exception processing pattern " + pattern.getName() + " : " + e);

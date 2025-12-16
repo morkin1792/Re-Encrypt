@@ -1,9 +1,13 @@
 package reencrypt;
 
 import java.awt.Color;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Date;
 
 import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.persistence.Persistence;
@@ -11,11 +15,12 @@ import burp.api.montoya.persistence.Persistence;
 public class Config implements Serializable {
     public static final String fileMarker = "{FILE}";
     public static final String dataMarker = "{DATA}";
-    private static final String cmdKeyPrefix = "sh/";
 
     ArrayList<CapturePattern> requestPatterns, responsePatterns;
-    String decodeCommand, encodeCommand;
-    boolean shouldSaveCommands, enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes,
+    File logFile;
+    BufferedWriter logWriter;
+    String logFilePath;
+    boolean enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes,
             escapeResponseDoubleQuotes, highlightRequestPrintEditor, highlightResponsePrintEditor, reloadRequestEditors,
             reloadResponseEditors;
     Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
@@ -23,9 +28,11 @@ public class Config implements Serializable {
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
+        this.logFilePath = getPreference("logFilePath",
+                System.getProperty("user.home") + File.separator + "reencrypt.log");
+        this.logFile = new File(logFilePath);
         this.responsePatterns = getPreference("responsePatterns", new ArrayList<CapturePattern>());
         this.requestPatterns = getPreference("requestPatterns", new ArrayList<CapturePattern>());
-        this.shouldSaveCommands = getPreference("shouldSaveCommands", true);
         this.enableRequestPrintEditor = getPreference("enableRequestPrintEditor", true);
         this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
         this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
@@ -38,6 +45,44 @@ public class Config implements Serializable {
                 getPreference("resPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
+    }
+
+    public String getLogFilePath() {
+        return logFilePath;
+    }
+
+    public void updateLogFilePath(String logFilePath) throws IOException {
+        if (logWriter != null) {
+            logWriter.close();
+        }
+        this.logFile = new File(logFilePath);
+        if (!logFile.exists()) {
+            logFile.createNewFile();
+            logFile.delete();
+        } else if (!logFile.canWrite()) {
+            throw new IOException("file is not writable");
+        }
+        this.logFilePath = logFilePath;
+        this.persisted.setString("logFilePath", logFilePath);
+    }
+
+    public void writeLog(LogData logData) throws IOException {
+        if (logWriter == null) {
+            this.logWriter = new BufferedWriter(new FileWriter(logFile, true));
+        }
+        logWriter.append("Date  : " + new Date().toString() + "\n");
+        logWriter.append("Where1: " + logData.toolSource + " - " + (logData.isRequest ? "Request" : "Response") + "\n");
+        logWriter.append("Where2: " + logData.method + " " + logData.url + "\n");
+        logWriter.append("What  : " + logData.cipherOperation + " - " + logData.patternName + "\n");
+        if (logData.cipherOperation.toUpperCase().equals("ENCRYPT")) {
+            logWriter.append("Plain : " + logData.plainText + "\n");
+            logWriter.append("Cipher: " + logData.cipherText + "\n");
+        } else {
+            logWriter.append("Cipher: " + logData.cipherText + "\n");
+            logWriter.append("Plain : " + logData.plainText + "\n");
+        }
+        logWriter.append("\n");
+        logWriter.flush();
     }
 
     public CapturePattern[] getActivePatterns(boolean isRequest) {
@@ -103,11 +148,6 @@ public class Config implements Serializable {
         } catch (Exception e) {
             System.out.println("Failed to save patterns: " + e.getMessage());
         }
-    }
-
-    public void updateSaveCommands(boolean shouldSaveCommands) {
-        this.shouldSaveCommands = shouldSaveCommands;
-        this.persisted.setBoolean("shouldSaveCommands", shouldSaveCommands);
     }
 
     public void updateShowPrintEditor(boolean enablePrintEditor, boolean isRequest) {
@@ -220,21 +260,17 @@ public class Config implements Serializable {
         return patterns;
     }
 
-    public boolean shouldSaveCommands() {
-        return shouldSaveCommands;
-    }
-
-    public String getCommand(String cipherText, String defaultCommand) {
-        String hash = Utils.getHash(cipherText.getBytes());
-        String commandLoaded = this.persisted.getString(cmdKeyPrefix + hash);
-        if (commandLoaded == null) {
-            if (shouldSaveCommands()) {
-                this.persisted.setString(cmdKeyPrefix + hash, defaultCommand);
-            }
-            commandLoaded = defaultCommand;
-        }
-        return commandLoaded;
-    }
+    // public String getCommand(String cipherText, String defaultCommand) {
+    // String hash = Utils.getHash(cipherText.getBytes());
+    // String commandLoaded = this.persisted.getString(cmdKeyPrefix + hash);
+    // if (commandLoaded == null) {
+    // if (shouldSaveCommands()) {
+    // this.persisted.setString(cmdKeyPrefix + hash, defaultCommand);
+    // }
+    // commandLoaded = defaultCommand;
+    // }
+    // return commandLoaded;
+    // }
 
     public boolean checkReloadEditors(boolean isRequest) {
         if (isRequest) {

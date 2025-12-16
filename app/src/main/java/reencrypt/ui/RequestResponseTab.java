@@ -9,6 +9,7 @@ import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
 import reencrypt.App;
 import reencrypt.CapturePattern;
+import reencrypt.LogData;
 import reencrypt.ReEncrypt;
 import reencrypt.Utils;
 
@@ -45,18 +46,22 @@ public class RequestResponseTab {
     private byte[] cachedContentFromIsEnabledFor;
     private String cachedURLFromIsEnabledFor;
     private byte[] cachedContentFromSetBytes;
+    private String cachedMethod, cachedUrl;
     private boolean isRequest;
     private String errorMessage;
     private Color colorMessage;
     private ReEncrypt reEncrypt;
     private boolean readOnly;
     private int tabbedPaneLastSelectedIndex, cachedCaretPosition;
+    private String toolType;
 
-    public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
+    public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly,
+            String toolType) {
         this.isRequest = isRequest;
         this.api = api;
         this.reEncrypt = reEncrypt;
         this.readOnly = readOnly;
+        this.toolType = toolType;
 
         this.editors = new ArrayList<>();
         this.tabbedPaneLastSelectedIndex = 0;
@@ -239,20 +244,23 @@ public class RequestResponseTab {
         return false;
     }
 
-    public void setBytes(HttpService httpService, byte[] content) {
+    public void setBytes(HttpService httpService, String method, String url, byte[] content) {
         System.out.println("calling setBytes. " + editors.size() + " editors found.");
         reloadEditors();
         if (content == null)
             return;
 
         this.cachedContentFromSetBytes = content;
+        this.cachedMethod = method;
+        this.cachedUrl = url;
         byte[] printEditorContent = content;
         ArrayList<String> regexes2Highlight = new ArrayList<>();
         for (var editor : editors) {
             System.out.println("looking for regex: " + editor.getPattern().getPatternRegex());
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
-                String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes);
+                LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
+                String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes, logData);
                 editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
                 regexes2Highlight.add(editor.getPattern().getPatternRegex());
                 if (printEditor != null) {
@@ -316,7 +324,8 @@ public class RequestResponseTab {
         for (var editor : editors) {
             String plainText = new String(editor.getBytes(), Charset.forName("utf8"));
             try {
-                patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText);
+                LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
+                patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText, logData);
             } catch (Exception e) {
                 // showMessage(e.toString());
                 System.out.println("getBytes exception: " + e.getMessage());

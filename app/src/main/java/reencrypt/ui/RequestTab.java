@@ -11,8 +11,8 @@ import burp.api.montoya.core.ByteArray;
 public class RequestTab extends RequestResponseTab implements ExtensionProvidedHttpRequestEditor {
     HttpService httpService;
 
-    public RequestTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly) {
-        super(true, api, reEncrypt, readOnly);
+    public RequestTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly, String toolType) {
+        super(true, api, reEncrypt, readOnly, toolType);
     }
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse) {
@@ -25,7 +25,8 @@ public class RequestTab extends RequestResponseTab implements ExtensionProvidedH
 
     public void setRequestResponse(HttpRequestResponse requestResponse) {
         httpService = requestResponse.request().httpService();
-        super.setBytes(httpService, requestResponse.request().toByteArray().getBytes());
+        super.setBytes(httpService, requestResponse.request().method(), requestResponse.request().url(),
+                requestResponse.request().toByteArray().getBytes());
     }
 
 }

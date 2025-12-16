@@ -27,13 +27,15 @@ public class App implements BurpExtension {
         var reEncrypt = new ReEncrypt(config);
         api.userInterface().registerHttpRequestEditorProvider(new HttpRequestEditorProvider() {
             public ExtensionProvidedHttpRequestEditor provideHttpRequestEditor(EditorCreationContext creationContext) {
-                return new RequestTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY);
+                return new RequestTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY,
+                        creationContext.toolSource().toolType().toolName());
             }
         });
         api.userInterface().registerHttpResponseEditorProvider(new HttpResponseEditorProvider() {
             public ExtensionProvidedHttpResponseEditor provideHttpResponseEditor(
                     EditorCreationContext creationContext) {
-                return new ResponseTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY);
+                return new ResponseTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY,
+                        creationContext.toolSource().toolType().toolName());
             }
         });
         api.proxy().registerRequestHandler(new ProxyHandler(reEncrypt));
