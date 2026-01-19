@@ -9,6 +9,7 @@
 plugins {
     // Apply the application plugin to add support for building a CLI application in Java.
     application
+    id("com.gradleup.shadow") version "9.3.0" // This is necessary to make the hashing library net.openhft:zero-allocation-hashing work in Burp Suite
 }
 
 repositories {
@@ -18,8 +19,24 @@ repositories {
 
 dependencies {
     // This dependency is used by the application.
-    implementation("com.google.guava:guava:31.1-jre")
     implementation("net.portswigger.burp.extensions:montoya-api:2025.8")
+    implementation("net.openhft:zero-allocation-hashing:0.27ea1")
+    
+    // Testing
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.jar {
+    // Disable the standard jar task, to avoid generating 2 jar files
+    enabled = false
+}
+
+tasks.shadowJar {
+    // This is necessary to make the hashing library net.openhft:zero-allocation-hashing work in Burp Suite
+    relocate("net.openhft.hashing", "reencrypt.shaded.hashing")
+    archiveClassifier.set("encrypt")
+    archiveBaseName.set("re")
 }
 
 val main = "reencrypt.App"
@@ -33,6 +50,17 @@ tasks.withType<Jar> {
     manifest {
         attributes("Main-Class" to "$main")
     }
-    archiveBaseName.set("reencrypt")
+    archiveBaseName.set("re")
 }
 
+tasks.build {
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+    }
+}

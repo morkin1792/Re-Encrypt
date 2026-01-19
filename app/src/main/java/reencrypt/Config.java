@@ -25,6 +25,7 @@ public class Config implements Serializable {
             reloadResponseEditors;
     Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
     PersistedObject persisted;
+    DecryptionCache decryptionCache;
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
@@ -45,6 +46,11 @@ public class Config implements Serializable {
                 getPreference("resPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
+        this.decryptionCache = new DecryptionCache(persisted);
+    }
+
+    public DecryptionCache getDecryptionCache() {
+        return decryptionCache;
     }
 
     public String getLogFilePath() {

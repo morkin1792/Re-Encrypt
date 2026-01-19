@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import reencrypt.exception.CommandException;
 import reencrypt.exception.PatternException;
 
 public class ReEncrypt {
@@ -20,7 +21,7 @@ public class ReEncrypt {
 
     public byte[] encryptAndPatch(byte[] request, CapturePattern pattern,
             String plainText, LogData logData)
-            throws IOException, InterruptedException, PatternException {
+            throws IOException, InterruptedException, PatternException, CommandException {
         int[] indexes = searchPattern(pattern.getPatternRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
@@ -40,9 +41,10 @@ public class ReEncrypt {
         return patchRequest(request, beginIndex, endIndex, newValue.getBytes());
     }
 
-    public String encrypt(String rawCommand, String plainText) throws IOException, InterruptedException {
+    public String encrypt(String rawCommand, String plainText)
+            throws IOException, InterruptedException, CommandException {
         ShellCommand command = new ShellCommand(rawCommand, plainText);
-        String cipherText = command.execute();
+        String cipherText = command.execute().getOutputCheckingExitCode();
         return cipherText;
     }
 
@@ -65,25 +67,47 @@ public class ReEncrypt {
         throw new PatternException(regex);
     }
 
-    public String searchAndDecrypt(CapturePattern pattern, byte[] content, LogData logData)
+    public CommandOutput searchAndDecrypt(CapturePattern pattern, byte[] content, LogData logData)
             throws IOException, InterruptedException, PatternException {
         int[] indexes = searchPattern(pattern.getPatternRegex(), content);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = new String(content).substring(beginIndex, endIndex);
-        String plainText = decrypt(pattern.getDecCommand(), cipherText);
-        if (pattern.shouldSaveToLog()) {
-            logData.update(cipherText, plainText, pattern.getName(), "Decrypt");
+        CommandOutput commandOutput = decryptWithCache(pattern, cipherText);
+        if (pattern.shouldSaveToLog() && !commandOutput.isFailed()) {
+            logData.update(cipherText, commandOutput.getOutput(), pattern.getName(), "Decrypt");
             config.writeLog(logData);
         }
-        return plainText;
+        return commandOutput;
     }
 
-    String decrypt(String decCommand, String cipherText) throws IOException, InterruptedException {
-        ShellCommand command = new ShellCommand(decCommand, cipherText);
-        String plainText = command.execute();
-        return plainText;
+    /**
+     * Decrypt with cache fallback.
+     * On success: caches the result if pattern has caching enabled.
+     * On failure: returns cached result if available.
+     */
+    private CommandOutput decryptWithCache(CapturePattern pattern, String cipherText)
+            throws IOException, InterruptedException {
+        DecryptionCache decryptionCache = config.getDecryptionCache();
+        CommandOutput commandOutput = decrypt(pattern.getDecCommand(), cipherText);
+        if (pattern.shouldUseCacheSystem()) {
+            if (!commandOutput.isFailed()) {
+                decryptionCache.put(cipherText, commandOutput.getOutput());
+            } else {
+                String cachedOutput = decryptionCache.get(cipherText);
+                if (cachedOutput != null) {
+                    return new CommandOutput(cachedOutput, commandOutput.getOutput());
+                }
+            }
+        }
+        return commandOutput;
 
+    }
+
+    private CommandOutput decrypt(String decCommand, String cipherText)
+            throws IOException, InterruptedException {
+        ShellCommand command = new ShellCommand(decCommand, cipherText);
+        return command.execute();
     }
 
 }

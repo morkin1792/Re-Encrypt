@@ -1,7 +1,15 @@
 package reencrypt.ui;
 
+import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Font;
 import java.util.Optional;
+
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.ScrollPaneConstants;
 
 import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
@@ -19,19 +27,109 @@ public class RequestResponseEditor {
     boolean isResponse;
     int size;
 
+    // Alert state
+    private String decodeAlertMessage = "";
+    private Color decodeAlertColor = Color.BLACK;
+    private String encodeAlertMessage = "";
+    private Color encodeAlertColor = Color.BLACK;
+
+    // Per-editor alert components
+    private final JPanel wrapperPanel;
+    private final JTextArea alertArea;
+    private final JScrollPane alertScrollPane;
+    private static final Font ALERT_FONT = new Font("Hack", Font.BOLD, 13);
+
     public RequestResponseEditor(HttpRequestEditor httpRequestEditor) {
         this.httpRequestEditor = httpRequestEditor;
         this.isResponse = false;
         this.size = 0;
+        this.alertArea = createAlertArea();
+        this.alertScrollPane = createAlertScrollPane(alertArea);
+        this.wrapperPanel = createWrapperPanel(httpRequestEditor.uiComponent());
     }
 
     public RequestResponseEditor(HttpResponseEditor httpResponseEditor) {
         this.httpResponseEditor = httpResponseEditor;
         this.isResponse = true;
         this.size = 0;
+        this.alertArea = createAlertArea();
+        this.alertScrollPane = createAlertScrollPane(alertArea);
+        this.wrapperPanel = createWrapperPanel(httpResponseEditor.uiComponent());
+    }
+
+    private JTextArea createAlertArea() {
+        JTextArea area = new JTextArea(0, 0);
+        area.setLineWrap(true);
+        area.setFont(ALERT_FONT);
+        area.setFocusable(false);
+        area.setEditable(false);
+        area.setVisible(false);
+        return area;
+    }
+
+    private JScrollPane createAlertScrollPane(JTextArea alertArea) {
+        JScrollPane scrollPane = new JScrollPane(alertArea);
+        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVisible(false);
+        return scrollPane;
+    }
+
+    private JPanel createWrapperPanel(Component editorComponent) {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(alertScrollPane, BorderLayout.NORTH);
+        panel.add(editorComponent, BorderLayout.CENTER);
+        return panel;
+    }
+
+    /**
+     * Update the alert display based on priority: 1. Encode alert (if present) 2.
+     * Decode alert (otherwise)
+     */
+    private void updateAlertDisplay() {
+        String message;
+        Color color;
+
+        if (!encodeAlertMessage.isEmpty()) {
+            message = encodeAlertMessage;
+            color = encodeAlertColor;
+        } else {
+            message = decodeAlertMessage;
+            color = decodeAlertColor;
+        }
+
+        alertArea.setText(message);
+        alertArea.setForeground(color);
+        boolean visible = message != null && !message.trim().isEmpty();
+        alertArea.setVisible(visible);
+        alertScrollPane.setVisible(visible);
+    }
+
+    public void setDecodeAlert(String message, Color color) {
+        this.decodeAlertMessage = message == null ? "" : message;
+        this.decodeAlertColor = color;
+        updateAlertDisplay();
+    }
+
+    public void setEncodeAlert(String message, Color color) {
+        this.encodeAlertMessage = message == null ? "" : message;
+        this.encodeAlertColor = color;
+        updateAlertDisplay();
+    }
+
+    /**
+     * Clear all alerts
+     */
+    public void clearAlerts() {
+        this.decodeAlertMessage = "";
+        this.encodeAlertMessage = "";
+        updateAlertDisplay();
     }
 
     public Component uiComponent() {
+        return wrapperPanel;
+    }
+
+    public Component editorComponent() {
         return isResponse ? httpResponseEditor.uiComponent() : httpRequestEditor.uiComponent();
     }
 
@@ -77,7 +175,6 @@ public class RequestResponseEditor {
             return httpResponseEditor.getResponse().toByteArray().getBytes();
         } else {
             return httpRequestEditor.getRequest().toByteArray().getBytes();
-            // return rawEditor.getContents().getBytes();
         }
     }
 

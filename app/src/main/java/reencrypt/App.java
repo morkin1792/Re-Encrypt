@@ -38,8 +38,8 @@ public class App implements BurpExtension {
                         creationContext.toolSource().toolType().toolName());
             }
         });
-        api.proxy().registerRequestHandler(new ProxyHandler(reEncrypt));
-        api.proxy().registerResponseHandler(new ProxyHandler(reEncrypt));
+        api.proxy().registerRequestHandler(new ProxyHandler(api, reEncrypt));
+        api.proxy().registerResponseHandler(new ProxyHandler(api, reEncrypt));
         api.intruder().registerPayloadProcessor(new IntruderHandler(reEncrypt));
     }
 
