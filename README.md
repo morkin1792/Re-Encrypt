@@ -88,10 +88,13 @@ You can find a script that helps make MiTM in RSA [here](TODO).
 - ~~highlighting inside Print Tab~~
 - ~~checkbox to decide when enable Print Tab highlight~~
 - ~~why caret is not working? + check focus (find a Java function to focus on the editor again)~~
-- intruder support again (use the HttpHandler to decrypt the message, edit comments through the HttpHandler)
 - ~~save all the decrypted data to a file log~~
-- ?save commands again (consider change to xxh algorithm)?
-- remove old save commands code + showMessage
+- ~~?save commands again (consider change to xxh algorithm)?~~
+- ~~remove old save commands code + showMessage~~
+- ~~monitoring cache size~~
+- ~~again bug on editor focus~~
+- intruder support again (use the HttpHandler to decrypt the message, edit comments through the HttpHandler)
+- update README
 - ?pre-defined patterns?
 - better UI (layout, buttons)
 - ?pre defined encryption/scripts?

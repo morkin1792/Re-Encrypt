@@ -26,7 +26,7 @@ public class ShellCommand {
         }
     }
 
-    public String execute() throws IOException, InterruptedException {
+    public CommandOutput execute() throws IOException, InterruptedException {
         try {
             System.out.println("Executing command: " + command);
             String os = System.getProperty("os.name").toLowerCase();
@@ -51,12 +51,8 @@ public class ShellCommand {
             }
 
             int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                // throw new RuntimeException("Command exited with code " + exitCode +
-                // "\nOutput:\n" + output);
-                return "Command exited with code " + exitCode + "\nOutput:\n" + output;
-            }
-            return output.toString().trim();
+
+            return new CommandOutput(output.toString().trim(), exitCode);
         } finally {
             DeleteTempFile();
         }

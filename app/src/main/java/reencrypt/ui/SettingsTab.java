@@ -19,7 +19,7 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.util.Arrays;
 
-import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
@@ -77,10 +77,10 @@ public class SettingsTab {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 switch (getColumnName(columnIndex)) {
-                    case "Enabled":
-                        return Boolean.class;
-                    case "Re-Encrypt Proxy":
-                        return Boolean.class;
+                case "Enabled":
+                    return Boolean.class;
+                case "Re-Encrypt Proxy":
+                    return Boolean.class;
                 }
                 return super.getColumnClass(columnIndex);
             };
@@ -91,10 +91,7 @@ public class SettingsTab {
             }
         };
         // Loading saved patterns
-        updateTable(
-                model,
-                config,
-                isRequest);
+        updateTable(model, config, isRequest);
         JTable table = new JTable(model);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         TableColumnModel columnModel = table.getColumnModel();
@@ -123,10 +120,7 @@ public class SettingsTab {
                 }
                 config.addPattern(newPattern, isRequest);
 
-                updateTable(
-                        model,
-                        config,
-                        isRequest);
+                updateTable(model, config, isRequest);
             }
         });
 
@@ -136,17 +130,13 @@ public class SettingsTab {
             public void actionPerformed(ActionEvent e) {
                 int index = table.getSelectedRow();
                 if (index != -1) {
-                    var modifiedPattern = createOrEditPatternPopup(
-                            config.getPatterns(isRequest).get(index), isRequest);
+                    var modifiedPattern = createOrEditPatternPopup(config.getPatterns(isRequest).get(index), isRequest);
                     if (modifiedPattern == null) {
                         return; // User cancelled the dialog
                     }
 
                     config.editPattern(index, modifiedPattern, isRequest);
-                    updateTable(
-                            model,
-                            config,
-                            isRequest);
+                    updateTable(model, config, isRequest);
                 }
             }
         });
@@ -160,10 +150,7 @@ public class SettingsTab {
                 if (index != -1) {
                     // cloning the selected pattern
                     config.clonePattern(index, isRequest);
-                    updateTable(
-                            model,
-                            config,
-                            isRequest);
+                    updateTable(model, config, isRequest);
 
                     // moving the cloned pattern
                     int wishedIndex = index + 1;
@@ -188,10 +175,7 @@ public class SettingsTab {
                     int selectedRowIndex = selectedRows[auxIndex];
                     config.removePattern(selectedRowIndex, isRequest);
                 }
-                updateTable(
-                        model,
-                        config,
-                        isRequest);
+                updateTable(model, config, isRequest);
             }
         });
 
@@ -278,21 +262,19 @@ public class SettingsTab {
         JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
         panel.add(enabledCheckbox);
 
-        JCheckBox patchProxyCheckbox = new JCheckBox(
-                "Automatically re-encrypt proxy " + (isRequest ? "requests" : "responses")
-                        + " (if Log data is enabled, they also will be logged)",
-                false);
-        panel.add(patchProxyCheckbox);
-
         JCheckBox cacheCommandsCheckbox = new JCheckBox(
-                "Cache system for commands (if a command fails, a cached output will be loaded)",
+                "Use cache system for decoding (save decoded outputs, and load them when a decode command fails, useful if keys change often)",
                 true);
         panel.add(cacheCommandsCheckbox);
 
         JCheckBox saveToLogCheckbox = new JCheckBox(
-                "Log data to the file defined in Settings (allowing easy search later)",
-                true);
+                "Log data to the file defined in Settings (so, later, you can easily search for plaintext data)", true);
         panel.add(saveToLogCheckbox);
+
+        JCheckBox patchProxyCheckbox = new JCheckBox("Automatically re-encrypt proxy "
+                + (isRequest ? "requests" : "responses") + " (if Log data is enabled, they will also be logged)",
+                false);
+        panel.add(patchProxyCheckbox);
 
         if (existingPattern != null) {
             // If editing an existing pattern, populate the fields with its data
@@ -303,7 +285,7 @@ public class SettingsTab {
             decCommand.setText(existingPattern.getDecCommand());
             enabledCheckbox.setSelected(existingPattern.isEnabled());
             patchProxyCheckbox.setSelected(existingPattern.shouldPatchProxy());
-            cacheCommandsCheckbox.setSelected(existingPattern.shouldCacheCommands());
+            cacheCommandsCheckbox.setSelected(existingPattern.shouldUseCacheSystem());
             saveToLogCheckbox.setSelected(existingPattern.shouldSaveToLog());
         } else {
             // If creating a new pattern, set placeholders
@@ -317,50 +299,69 @@ public class SettingsTab {
 
         String[] options = { "OK", "Cancel" };
 
-        JOptionPane optionPane = new JOptionPane(panel,
-                JOptionPane.PLAIN_MESSAGE,
-                JOptionPane.OK_CANCEL_OPTION,
-                null,
-                options,
-                options[0]);
+        JOptionPane optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null,
+                options, options[0]);
 
         JDialog dialog = optionPane.createDialog("Add New Pattern");
-        dialog.setVisible(true);
 
-        Object selectedValue = optionPane.getValue();
+        while (true) {
+            dialog.setVisible(true);
+            Object selectedValue = optionPane.getValue();
 
-        if ("OK".equals(selectedValue)) {
+            if (!"OK".equals(selectedValue)) {
+                return null; // Cancelled
+            }
+
             String regex = regexField.getText();
-            if (regex != null && !regex.isEmpty()) {
-                String name = nameField.getText();
-                if (name == null || name.isEmpty()) {
-                    name = "Pattern " + (config.getPatterns(isRequest).size() + 1);
-                }
-                pattern = new CapturePattern(
-                        name,
-                        regex,
-                        scopeField.getText(),
-                        decCommand.getText(),
-                        encCommand.getText(),
-                        enabledCheckbox.isSelected(),
-                        patchProxyCheckbox.isSelected(),
-                        cacheCommandsCheckbox.isSelected(),
-                        saveToLogCheckbox.isSelected());
-            } else {
+            if (regex == null || regex.trim().isEmpty()) {
                 JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern regex.", "Error",
                         JOptionPane.ERROR_MESSAGE);
+                continue; // Re-show dialog
             }
+
+            String name = nameField.getText();
+            if (name == null || name.isEmpty()) {
+                name = "Pattern " + (config.getPatterns(isRequest).size() + 1);
+            }
+
+            boolean duplicate = false;
+            for (CapturePattern p : config.getPatterns(isRequest)) {
+                if (p.getName().equals(name)) {
+                    // If we are editing (existingPattern != null), allow the name to match itself
+                    if (existingPattern != null && p == existingPattern) {
+                        continue;
+                    }
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (duplicate) {
+                JOptionPane.showMessageDialog(null,
+                        "A pattern with this name already exists.\nPlease choose a unique name.", "Error",
+                        JOptionPane.ERROR_MESSAGE);
+                continue; // Re-show dialog
+            }
+
+            // Validation passed
+            pattern = new CapturePattern(name, regex, scopeField.getText(), decCommand.getText(), encCommand.getText(),
+                    enabledCheckbox.isSelected(), patchProxyCheckbox.isSelected(), cacheCommandsCheckbox.isSelected(),
+                    saveToLogCheckbox.isSelected());
+            break;
         }
         return pattern;
     }
 
     private JPanel createSettingsScreen() {
         JPanel painelBorderLayout = new JPanel(new BorderLayout());
-        JPanel panel = new JPanel(new GridLayout(15, 1));
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
         // File chooser row panel
         JPanel fileChooserPanel = new JPanel(new BorderLayout(5, 0));
-        fileChooserPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
+        fileChooserPanel.setBorder(new EmptyBorder(5, 0, 5, 5));
+        fileChooserPanel.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 30));
+        fileChooserPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel logFileLabel = new JLabel("Log File:");
 
@@ -391,10 +392,8 @@ public class SettingsTab {
                         config.updateLogFilePath(path);
                         logFileField.setText(path);
                     } catch (java.io.IOException ex) {
-                        JOptionPane.showMessageDialog(null,
-                                "Failed to update log file path: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(null, "Failed to update log file path: " + ex.getMessage(),
+                                "Error", JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }
@@ -408,35 +407,109 @@ public class SettingsTab {
 
         createPrintTabSettings(panel, true);
         createPrintTabSettings(panel, false);
+        createCacheSettings(panel);
 
         painelBorderLayout.add(panel, BorderLayout.NORTH);
 
         return addPanelInternalText("• Optionally, adjust the settings", painelBorderLayout);
     }
 
+    private void createCacheSettings(JPanel panel) {
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("Cache System for Decoding");
+        jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
+        panel.add(jlabel);
+
+        JPanel cachePanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 5, 0));
+        cachePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        cachePanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        cachePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel sizeLabel = new JLabel("Cache Size: " + getCacheSizeFormatted());
+        // Add some space after label
+        sizeLabel.setBorder(new EmptyBorder(0, 0, 0, 10));
+
+        JButton clearButton = new JButton("Clear Cache");
+        JButton refreshButton = new JButton("Refresh Size");
+
+        clearButton.addActionListener(e -> {
+            int result = JOptionPane.showConfirmDialog(null,
+                    "Are you sure you want to clear the decryption cache?\nYou may lose important data.\nThis action cannot be undone.",
+                    "Clear Cache", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                config.getDecryptionCache().clear();
+                sizeLabel.setText("Cache Size: " + getCacheSizeFormatted());
+                JOptionPane.showMessageDialog(null, "Cache cleared successfully.");
+            }
+        });
+
+        refreshButton.addActionListener(e -> {
+            sizeLabel.setText("Cache Size: " + getCacheSizeFormatted());
+        });
+
+        cachePanel.add(sizeLabel);
+        cachePanel.add(clearButton);
+        // Add space between buttons
+        cachePanel.add(javax.swing.Box.createHorizontalStrut(5));
+        cachePanel.add(refreshButton);
+
+        panel.add(cachePanel);
+
+        JLabel descriptionLabel = new JLabel("Cache data is stored in the Burp project file.");
+        descriptionLabel.setFont(new Font(descriptionLabel.getFont().getName(), Font.ITALIC, 11));
+        descriptionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        descriptionLabel.setBorder(new EmptyBorder(5, 0, 0, 0));
+        panel.add(descriptionLabel);
+    }
+
+    private String getCacheSizeFormatted() {
+        long bytes = config.getDecryptionCache().getCacheSizeInBytes();
+        if (bytes < 1024) {
+            return bytes + " B";
+        } else if (bytes < 1024 * 1024) {
+            return String.format("%.2f KiB", bytes / 1024.0);
+        } else if (bytes < 1024 * 1024 * 1024) {
+            return String.format("%.2f MiB", bytes / (1024.0 * 1024.0));
+        } else {
+            return String.format("%.2f GiB", bytes / (1024.0 * 1024.0 * 1024.0));
+        }
+    }
+
     private void createPrintTabSettings(JPanel panel, boolean isRequest) {
         String currentString = isRequest ? "requests" : "responses";
-        panel.add(new JLabel(), BorderLayout.NORTH);
+
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
         jlabel.setText("Print Tab for " + currentString);
-        panel.add(jlabel, BorderLayout.NORTH);
+        jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
+        panel.add(jlabel);
+
         JCheckBox enablePrintTab = new JCheckBox(
                 String.format("Enable a read-only Print Tab for %s. Useful for taking screenshots.", currentString),
                 config.isPrintEditorEnabled(isRequest));
-        JCheckBox escapeDoubleQuotes = new JCheckBox(
-                String.format(
-                        "Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.",
-                        currentString),
-                config.isEscapingDoubleQuotes(isRequest));
+        enablePrintTab.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JCheckBox escapeDoubleQuotes = new JCheckBox(String.format(
+                "Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.",
+                currentString), config.isEscapingDoubleQuotes(isRequest));
+        escapeDoubleQuotes.setAlignmentX(Component.LEFT_ALIGNMENT);
         escapeDoubleQuotes.setEnabled(enablePrintTab.isSelected());
-        JCheckBox highlightPrintTab = new JCheckBox(
-                "Highlight patterns found in Print Tab for " + currentString,
+        JCheckBox highlightPrintTab = new JCheckBox("Highlight patterns found in Print Tab for " + currentString,
                 config.isHighlightingPrintEditor(isRequest));
+        highlightPrintTab.setAlignmentX(Component.LEFT_ALIGNMENT);
         highlightPrintTab.setEnabled(enablePrintTab.isSelected());
         CircularColorButton colorButton = new CircularColorButton("▪ Select a color:", null,
                 config.getPrintEditorHighlightColor(isRequest), 20);
+        colorButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         colorButton.setEnabled(enablePrintTab.isSelected() && highlightPrintTab.isSelected());
+
+        // Add spacing for checkboxes
+        enablePrintTab.setBorder(new EmptyBorder(0, 0, 5, 0));
+        escapeDoubleQuotes.setBorder(new EmptyBorder(0, 20, 5, 0));
+        highlightPrintTab.setBorder(new EmptyBorder(0, 20, 5, 0));
+        colorButton.setBorder(new EmptyBorder(0, 20, 0, 0));
 
         enablePrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
@@ -451,7 +524,6 @@ public class SettingsTab {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateShouldEscapeDoubleQuotes(isSelected, isRequest);
         });
-        escapeDoubleQuotes.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(escapeDoubleQuotes);
 
         highlightPrintTab.addItemListener(state -> {
@@ -460,14 +532,12 @@ public class SettingsTab {
             colorButton.setEnabled(isSelected);
         });
 
-        highlightPrintTab.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(highlightPrintTab);
 
         colorButton.setColorAction((color) -> {
             config.updatePrintEditorHighlightColor(color, isRequest);
             return null;
         });
-        colorButton.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0));
         panel.add(colorButton);
     }
 
@@ -515,15 +585,10 @@ public class SettingsTab {
         model.setRowCount(0);
         var updatedPatterns = config.getPatterns(isRequest);
         for (var updatedPattern : updatedPatterns) {
-            model.addRow(new Object[] {
-                    updatedPattern.isEnabled(),
-                    updatedPattern.getName(),
-                    updatedPattern.getPatternRegex(),
-                    updatedPattern.getURLTargetRegex(),
-                    updatedPattern.shouldPatchProxy(),
-                    updatedPattern.getDecCommand(),
-                    updatedPattern.getEncCommand()
-            });
+            model.addRow(new Object[] { updatedPattern.isEnabled(), updatedPattern.getName(),
+                    updatedPattern.getPatternRegex(), updatedPattern.getURLTargetRegex(),
+                    updatedPattern.shouldPatchProxy(), updatedPattern.getDecCommand(),
+                    updatedPattern.getEncCommand() });
         }
 
     }

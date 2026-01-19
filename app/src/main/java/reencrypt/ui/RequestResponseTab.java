@@ -9,23 +9,21 @@ import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
 import reencrypt.App;
 import reencrypt.CapturePattern;
+import reencrypt.CommandOutput;
 import reencrypt.LogData;
 import reencrypt.ReEncrypt;
 import reencrypt.Utils;
+import reencrypt.exception.CommandException;
 
 import java.awt.Component;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JTextArea;
-import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
@@ -39,17 +37,12 @@ public class RequestResponseTab {
     private ArrayList<RequestResponseEditor> editors;
     private RequestResponseEditor printEditor;
     private final JPanel panel;
-    private final JTextArea errorArea;
-    private final Font hackFont;
-    private JScrollPane scrollPane;
     private JTabbedPane tabbedPane;
     private byte[] cachedContentFromIsEnabledFor;
     private String cachedURLFromIsEnabledFor;
     private byte[] cachedContentFromSetBytes;
     private String cachedMethod, cachedUrl;
     private boolean isRequest;
-    private String errorMessage;
-    private Color colorMessage;
     private ReEncrypt reEncrypt;
     private boolean readOnly;
     private int tabbedPaneLastSelectedIndex, cachedCaretPosition;
@@ -65,10 +58,7 @@ public class RequestResponseTab {
 
         this.editors = new ArrayList<>();
         this.tabbedPaneLastSelectedIndex = 0;
-        this.errorMessage = "";
         this.panel = new JPanel(new BorderLayout());
-        this.errorArea = new JTextArea(0, 0);
-        this.hackFont = new Font("Hack", Font.BOLD, 13);
         mountUi();
     }
 
@@ -77,28 +67,18 @@ public class RequestResponseTab {
     }
 
     public void mountUi() {
-        errorArea.setLineWrap(true);
-        errorArea.setFont(hackFont);
-        errorArea.setFocusable(true);
-        errorArea.setEditable(false);
-        this.scrollPane = new JScrollPane(errorArea);
-        this.tabbedPane = new JTabbedPane();
-        this.tabbedPane.addChangeListener(new ChangeListener() {
+        tabbedPane = new JTabbedPane();
+        tabbedPane.addChangeListener(new ChangeListener() {
             @Override
             public void stateChanged(ChangeEvent e) {
                 int selectedIndex = tabbedPane.getSelectedIndex();
                 tabbedPaneLastSelectedIndex = selectedIndex;
             }
         });
-        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        panel.add(scrollPane, BorderLayout.NORTH);
         panel.add(tabbedPane, BorderLayout.CENTER);
-
-        showMessage(this.errorMessage, this.colorMessage);
     }
 
     void reloadEditors() {
-
         // saving last select index && caret position
         int cachedLastSelectedIndex = this.tabbedPaneLastSelectedIndex;
         var lastEditor = getLastSelectedEditor();
@@ -106,35 +86,46 @@ public class RequestResponseTab {
             cachedCaretPosition = lastEditor.caretPosition();
         }
 
-        editors.clear();
-
         tabbedPane.removeAll();
 
+        ArrayList<RequestResponseEditor> newEditorsList = new ArrayList<>();
         CapturePattern[] patterns = reEncrypt.getConfig().getActivePatterns(isRequest);
 
         for (CapturePattern pattern : patterns) {
-            RequestResponseEditor newEditor = null;
-            if (isRequest) {
-                if (!readOnly) {
-                    newEditor = new RequestResponseEditor(api.userInterface().createHttpRequestEditor());
-                } else {
-                    newEditor = new RequestResponseEditor(
-                            api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
-                }
-            } else {
-                if (!readOnly) {
-                    newEditor = new RequestResponseEditor(api.userInterface().createHttpResponseEditor());
-                } else {
-                    newEditor = new RequestResponseEditor(
-                            api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
-
+            // Try to reuse existing editor for this pattern, to keep the alerts
+            RequestResponseEditor editorToUse = null;
+            for (RequestResponseEditor existing : editors) {
+                if (existing.getPattern().getName().equals(pattern.getName())) {
+                    editorToUse = existing;
+                    editorToUse.setPattern(pattern); // Update pattern definition in case it changed
+                    break;
                 }
             }
-            System.out.println("reloading editors 7.");
-            newEditor.setPattern(pattern);
-            editors.add(newEditor);
 
+            if (editorToUse == null) {
+                // Create new editor if not found
+                if (isRequest) {
+                    if (!readOnly) {
+                        editorToUse = new RequestResponseEditor(api.userInterface().createHttpRequestEditor());
+                    } else {
+                        editorToUse = new RequestResponseEditor(
+                                api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY));
+                    }
+                } else {
+                    if (!readOnly) {
+                        editorToUse = new RequestResponseEditor(api.userInterface().createHttpResponseEditor());
+                    } else {
+                        editorToUse = new RequestResponseEditor(
+                                api.userInterface().createHttpResponseEditor(EditorOptions.READ_ONLY));
+                    }
+                }
+                editorToUse.setPattern(pattern);
+            }
+            newEditorsList.add(editorToUse);
         }
+
+        // Update the main list
+        this.editors = newEditorsList;
         if (reEncrypt.getConfig().isPrintEditorEnabled(isRequest)) {
             if (isRequest) {
                 printEditor = new RequestResponseEditor(
@@ -191,18 +182,9 @@ public class RequestResponseTab {
         return panel;
     }
 
-    public void showMessage(String message) {
-        showMessage(message, Color.decode("#f14c4c"));
-    }
-
-    public void showMessage(String message, Color color) {
-        this.errorMessage = message;
-        this.colorMessage = color;
-        errorArea.setText(message);
-        errorArea.setForeground(color);
-        errorArea.setVisible(message.length() > 0);
-        scrollPane.setVisible(errorArea.isVisible());
-    }
+    // Alert colors
+    private static final Color ALERT_COLOR_ERROR = Utils.hexToColor("#f14c4c");
+    private static final Color ALERT_COLOR_WARNING = Utils.hexToColor("#f09e2cff");
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse, boolean isRequest) {
         HttpRequest request = requestResponse.request();
@@ -221,10 +203,6 @@ public class RequestResponseTab {
             content = requestResponse.response().toByteArray().getBytes();
         }
 
-        System.out.println("isEnabledFor " + (isRequest ? "Request " : "Response ") + request.method() + " "
-                + url.substring(0, Math.min(url.length(), 100)) + "...");
-        System.out.println("isEnabledFor " + editors.size() + " editors found.");
-        System.out.println("setting cachedContentFromIsEnabledFor with " + content.length + " bytes.");
         this.cachedContentFromIsEnabledFor = content;
         this.cachedURLFromIsEnabledFor = url;
 
@@ -249,7 +227,6 @@ public class RequestResponseTab {
         reloadEditors();
         if (content == null)
             return;
-
         this.cachedContentFromSetBytes = content;
         this.cachedMethod = method;
         this.cachedUrl = url;
@@ -260,7 +237,13 @@ public class RequestResponseTab {
             System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
                 LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
-                String plainText = reEncrypt.searchAndDecrypt(editor.getPattern(), cachedContentFromSetBytes, logData);
+                CommandOutput commandOutput = reEncrypt.searchAndDecrypt(editor.getPattern(), content, logData);
+                String plainText = commandOutput.getOutput();
+
+                if (commandOutput.isFailed() && !commandOutput.isCached()) {
+                    // if failed and there is no cache, throw CommandException
+                    commandOutput.getOutputCheckingExitCode();
+                }
                 editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
                 regexes2Highlight.add(editor.getPattern().getPatternRegex());
                 if (printEditor != null) {
@@ -269,9 +252,16 @@ public class RequestResponseTab {
                     }
                     printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText);
                 }
-                showMessage("");
+                // Set per-editor alert based on command result
+                if (commandOutput.isCached()) {
+                    editor.setDecodeAlert("[*] Using CACHED output because decode command failed", ALERT_COLOR_WARNING);
+                } else {
+                    editor.setDecodeAlert("", Color.BLACK); // Clear decode alert
+                }
+            } catch (CommandException e) {
+                editor.setDecodeAlert("[-] Decode command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
             } catch (Exception e) {
-                System.out.println("exception in setBytes: " + e);
+                editor.setDecodeAlert("[-] Decode error: " + e.toString(), ALERT_COLOR_ERROR);
             }
         }
 
@@ -304,10 +294,18 @@ public class RequestResponseTab {
                 // set focus
                 SwingUtilities.invokeLater(() -> {
                     // IMPROVEME: find and implement a way to set the focus without a timer
-                    Timer timer = new Timer(100, e -> {
-                        Component editorComponent = getLastSelectedEditor().uiComponent();
-                        var textComponent = Utils.findFirstTextComponent(editorComponent);
-                        textComponent.requestFocusInWindow();
+                    Timer timer = new Timer(450, e -> {
+                        RequestResponseEditor currentEditor = getLastSelectedEditor();
+                        if (currentEditor != null) {
+                            Component editorComponent = currentEditor.editorComponent();
+                            var textComponent = Utils.findMainTextComponent(editorComponent);
+                            if (textComponent != null) {
+                                boolean focusSuccess = textComponent.requestFocusInWindow();
+                                if (!focusSuccess) {
+                                    textComponent.requestFocus();
+                                }
+                            }
+                        }
                     });
                     timer.setRepeats(false);
                     timer.start();
@@ -326,11 +324,12 @@ public class RequestResponseTab {
             try {
                 LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText, logData);
+                editor.setEncodeAlert("", Color.BLACK); // Clear encode alert
+            } catch (CommandException e) {
+                editor.setEncodeAlert("[-] Encode command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
             } catch (Exception e) {
-                // showMessage(e.toString());
-                System.out.println("getBytes exception: " + e.getMessage());
+                editor.setEncodeAlert("[-] Encode error: " + e.toString(), ALERT_COLOR_ERROR);
             }
-            // return cachedContentFromSetBytes;
         }
         return patchedRequest;
     }
