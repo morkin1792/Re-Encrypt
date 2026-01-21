@@ -1,6 +1,7 @@
 package reencrypt.ui;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
@@ -46,10 +47,10 @@ public class RequestResponseTab {
     private ReEncrypt reEncrypt;
     private boolean readOnly;
     private int tabbedPaneLastSelectedIndex, cachedCaretPosition;
-    private String toolType;
+    private ToolType toolType;
 
     public RequestResponseTab(boolean isRequest, MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly,
-            String toolType) {
+            ToolType toolType) {
         this.isRequest = isRequest;
         this.api = api;
         this.reEncrypt = reEncrypt;
@@ -137,7 +138,6 @@ public class RequestResponseTab {
         }
         boolean atLeastOneTab = false;
 
-        System.out.println("middle of reloading editors.");
         for (var editor : editors) {
             try {
                 if (cachedContentFromIsEnabledFor == null) {
@@ -148,10 +148,8 @@ public class RequestResponseTab {
                 }
                 ReEncrypt.searchPattern(editor.getPattern().getPatternRegex(), cachedContentFromIsEnabledFor);
                 tabbedPane.add(editor.getPattern().getName(), editor.uiComponent());
-                System.out.println("adding tabs " + editor.getPattern().getName());
                 atLeastOneTab = true;
             } catch (Exception e) {
-                System.out.println(editors.size() + " editors found.");
                 System.out.println("not adding tab " + editor + " because pattern not found." + e);
             }
         }
@@ -187,6 +185,17 @@ public class RequestResponseTab {
     private static final Color ALERT_COLOR_WARNING = Utils.hexToColor("#f09e2cff");
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse, boolean isRequest) {
+        // Disable editor for Intruder if auto-encrypt/decrypt is enabled
+        // (the HttpHandler already handles the transformation)
+        if (ToolType.INTRUDER == toolType) {
+            if (isRequest && reEncrypt.getConfig().isIntruderRequestEncryptEnabled()) {
+                return false;
+            }
+            if (!isRequest && reEncrypt.getConfig().isIntruderResponseDecryptEnabled()) {
+                return false;
+            }
+        }
+
         HttpRequest request = requestResponse.request();
         String url;
         try {
@@ -210,20 +219,16 @@ public class RequestResponseTab {
             try {
                 if (pattern.isTarget(url)) {
                     ReEncrypt.searchPattern(pattern.getPatternRegex(), content);
-                    System.out.println("found pattern: " + pattern.getName());
                     return true;
                 }
             } catch (Exception exception) {
                 System.out.println("isEnableFor Exception" + exception);
-                System.out.println(url.substring(0, Math.min(url.length(), 100)) + "...");
-                System.out.println(new String(content).substring(0, Math.min(content.length, 100)) + "...");
             }
         }
         return false;
     }
 
     public void setBytes(HttpService httpService, String method, String url, byte[] content) {
-        System.out.println("calling setBytes. " + editors.size() + " editors found.");
         reloadEditors();
         if (content == null)
             return;
@@ -233,10 +238,8 @@ public class RequestResponseTab {
         byte[] printEditorContent = content;
         ArrayList<String> regexes2Highlight = new ArrayList<>();
         for (var editor : editors) {
-            System.out.println("looking for regex: " + editor.getPattern().getPatternRegex());
-            System.out.println("to apply the command: " + editor.getPattern().getDecCommand());
             try {
-                LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
+                LogData logData = new LogData(toolType.toolName(), isRequest, cachedMethod, cachedUrl);
                 CommandOutput commandOutput = reEncrypt.searchAndDecrypt(editor.getPattern(), content, logData);
                 String plainText = commandOutput.getOutput();
 
@@ -266,7 +269,9 @@ public class RequestResponseTab {
         }
 
         setPrintEditor(httpService, printEditorContent, regexes2Highlight);
-        setFocusAndCaret();
+        if (ToolType.REPEATER == toolType && isRequest) {
+            setFocusAndCaret();
+        }
     }
 
     private void setPrintEditor(HttpService httpService, byte[] printEditorContent,
@@ -294,7 +299,7 @@ public class RequestResponseTab {
                 // set focus
                 SwingUtilities.invokeLater(() -> {
                     // IMPROVEME: find and implement a way to set the focus without a timer
-                    Timer timer = new Timer(450, e -> {
+                    Timer timer = new Timer(350, e -> {
                         RequestResponseEditor currentEditor = getLastSelectedEditor();
                         if (currentEditor != null) {
                             Component editorComponent = currentEditor.editorComponent();
@@ -312,17 +317,17 @@ public class RequestResponseTab {
                 });
             }
         } catch (NoSuchMethodError e) {
-            System.out.println("setCaretPosition not defined in this burp version " + e);
+            api.logging().raiseErrorEvent(
+                    "Please update your Burp Suite, setCaretPosition is not defined in this burp version: " + e);
         }
     }
 
     public byte[] getBytes() {
-        System.out.println("calling getBytes");
         byte[] patchedRequest = cachedContentFromSetBytes.clone();
         for (var editor : editors) {
             String plainText = new String(editor.getBytes(), Charset.forName("utf8"));
             try {
-                LogData logData = new LogData(toolType, isRequest, cachedMethod, cachedUrl);
+                LogData logData = new LogData(toolType.toolName(), isRequest, cachedMethod, cachedUrl);
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText, logData);
                 editor.setEncodeAlert("", Color.BLACK); // Clear encode alert
             } catch (CommandException e) {

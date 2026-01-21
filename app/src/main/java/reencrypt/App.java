@@ -28,19 +28,20 @@ public class App implements BurpExtension {
         api.userInterface().registerHttpRequestEditorProvider(new HttpRequestEditorProvider() {
             public ExtensionProvidedHttpRequestEditor provideHttpRequestEditor(EditorCreationContext creationContext) {
                 return new RequestTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY,
-                        creationContext.toolSource().toolType().toolName());
+                        creationContext.toolSource().toolType());
             }
         });
         api.userInterface().registerHttpResponseEditorProvider(new HttpResponseEditorProvider() {
             public ExtensionProvidedHttpResponseEditor provideHttpResponseEditor(
                     EditorCreationContext creationContext) {
                 return new ResponseTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY,
-                        creationContext.toolSource().toolType().toolName());
+                        creationContext.toolSource().toolType());
             }
         });
         api.proxy().registerRequestHandler(new ProxyHandler(api, reEncrypt));
         api.proxy().registerResponseHandler(new ProxyHandler(api, reEncrypt));
-        api.intruder().registerPayloadProcessor(new IntruderHandler(reEncrypt));
+        api.http().registerHttpHandler(new IntruderHandler(api, reEncrypt));
+        api.intruder().registerPayloadProcessor(new IntruderPayloadProcessor(api, reEncrypt));
     }
 
 }

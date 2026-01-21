@@ -44,4 +44,8 @@ public class CommandOutput {
         return exitCode != 0;
     }
 
+    public int getExitCode() {
+        return exitCode;
+    }
+
 }

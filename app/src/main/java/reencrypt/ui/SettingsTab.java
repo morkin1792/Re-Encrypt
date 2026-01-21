@@ -22,6 +22,9 @@ import java.util.Arrays;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -45,9 +48,10 @@ public class SettingsTab {
         JTabbedPane tabbedPane = new JTabbedPane();
 
         tabbedPane.add("Capturing + Processing", createCaptureDataScreen());
+        tabbedPane.add("Intruder Settings", createIntruderScreen());
 
         tabbedPane.add("(TODO) WebSockets ", null);
-        tabbedPane.setEnabledAt(1, false);
+        tabbedPane.setEnabledAt(2, false);
 
         tabbedPane.add("Extra Settings", createSettingsScreen());
 
@@ -55,10 +59,147 @@ public class SettingsTab {
     }
 
     private JPanel createCaptureDataScreen() {
-        JPanel subpanel = new JPanel(new GridLayout(1, 3));
-        subpanel.add(createCaptureDataTable("Request", true));
-        subpanel.add(createCaptureDataTable("Response", false));
-        return addPanelInternalText("• Set regexs to define what will be re:encrypted / re:encoded", subpanel);
+        JPanel subpanel = new JPanel(new GridLayout(2, 1));
+        subpanel.add(createCaptureDataTable("• Request Patterns", true));
+        subpanel.add(createCaptureDataTable("• Response Patterns", false));
+        return addPanelInternalText("Set regexs to define what will be re:encrypted / re:encoded", subpanel);
+    }
+
+    private JPanel createIntruderScreen() {
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+
+        // Section title
+        JLabel titleLabel = new JLabel("• Intruder Settings");
+        titleLabel.setFont(hackFont);
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        titleLabel.setBorder(new EmptyBorder(10, 0, 15, 0));
+        panel.add(titleLabel);
+
+        // Decrypt responses checkbox
+        JCheckBox decryptResponsesCheckbox = new JCheckBox(
+                "Auto-decrypt intruder responses (responses become plaintext)");
+        decryptResponsesCheckbox.setSelected(config.isIntruderResponseDecryptEnabled());
+        decryptResponsesCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        decryptResponsesCheckbox
+                .addActionListener(e -> config.setIntruderResponseDecrypt(decryptResponsesCheckbox.isSelected()));
+        panel.add(decryptResponsesCheckbox);
+
+        // Explanation for decrypt responses
+        JLabel decryptExplanation = new JLabel(
+                "Automatically DECRYPT using RESPONSE decode commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Responses");
+        decryptExplanation.setFont(decryptExplanation.getFont().deriveFont(11f));
+        decryptExplanation.setForeground(Color.GRAY);
+        decryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        decryptExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
+        panel.add(decryptExplanation);
+
+        // Encrypt requests checkbox
+        JCheckBox encryptRequestsCheckbox = new JCheckBox(
+                "Auto-encrypt intruder requests (SEND PAYLOADS IN PLAINTEXT)");
+        encryptRequestsCheckbox.setSelected(config.isIntruderRequestEncryptEnabled());
+        encryptRequestsCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(encryptRequestsCheckbox);
+
+        // Explanation for encrypt requests
+        JLabel encryptExplanation = new JLabel(
+                "Automatically ENCRYPT using REQUEST encode commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Requests");
+        encryptExplanation.setFont(encryptExplanation.getFont().deriveFont(11f));
+        encryptExplanation.setForeground(Color.GRAY);
+        encryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encryptExplanation.setBorder(new EmptyBorder(0, 24, 2, 0));
+        panel.add(encryptExplanation);
+
+        JLabel encryptExplanation2 = new JLabel(
+                "If you want to see the ciphertext, use Burp Suite Logger (CTRL+SHIFT+L)");
+        encryptExplanation2.setFont(encryptExplanation2.getFont().deriveFont(11f));
+        encryptExplanation2.setForeground(Color.GRAY);
+        encryptExplanation2.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encryptExplanation2.setBorder(new EmptyBorder(0, 24, 15, 0));
+        panel.add(encryptExplanation2);
+
+        // Payload processor checkbox
+        JCheckBox payloadProcessorCheckbox = new JCheckBox("Encrypt using payload processor");
+        payloadProcessorCheckbox.setSelected(config.isIntruderPayloadProcessorEnabled());
+        payloadProcessorCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(payloadProcessorCheckbox);
+
+        // Encrypt command text field
+        JPanel commandPanel = new JPanel(new BorderLayout(5, 0));
+        commandPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        commandPanel.setBorder(new EmptyBorder(5, 24, 5, 5));
+        commandPanel.setMaximumSize(new java.awt.Dimension(800, 45));
+
+        JLabel commandLabel = new JLabel("Encode Command:");
+        Color enabledLabelColor = commandLabel.getForeground();
+        boolean payloadProcessorEnabled = config.isIntruderPayloadProcessorEnabled();
+        commandLabel.setForeground(payloadProcessorEnabled ? enabledLabelColor : Color.GRAY);
+
+        JTextField commandField = new JTextField(config.getIntruderEncryptCommand());
+        commandField.setEnabled(payloadProcessorEnabled);
+        commandField.setToolTipText(
+                "Command to use in Intruder Payload Processor. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
+        String commandFieldPlaceholder = "python /tmp/script.js --encrypt --file {FILE}";
+        setPlaceholder(commandField, commandFieldPlaceholder);
+        commandField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                save();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                save();
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                save();
+            }
+
+            private void save() {
+                String text = commandField.getText();
+                if (!text.equals(commandFieldPlaceholder)) {
+                    config.setIntruderEncryptCommand(text);
+                }
+            }
+        });
+
+        commandPanel.add(commandLabel, BorderLayout.WEST);
+        commandPanel.add(commandField, BorderLayout.CENTER);
+        panel.add(commandPanel);
+
+        // Explanation for payload processor
+        JLabel payloadExplanation = new JLabel(
+                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to use the command above");
+        payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
+        payloadExplanation.setForeground(Color.GRAY);
+        payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        payloadExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
+        panel.add(payloadExplanation);
+
+        // Mutual exclusion logic
+        encryptRequestsCheckbox.addActionListener(e -> {
+            if (encryptRequestsCheckbox.isSelected()) {
+                payloadProcessorCheckbox.setSelected(false);
+                config.setIntruderPayloadProcessor(false);
+                commandField.setEnabled(false);
+                commandLabel.setForeground(Color.GRAY);
+            }
+            config.setIntruderRequestEncrypt(encryptRequestsCheckbox.isSelected());
+        });
+
+        payloadProcessorCheckbox.addActionListener(e -> {
+            if (payloadProcessorCheckbox.isSelected()) {
+                encryptRequestsCheckbox.setSelected(false);
+                config.setIntruderRequestEncrypt(false);
+            }
+            boolean enabled = payloadProcessorCheckbox.isSelected();
+            commandField.setEnabled(enabled);
+            commandLabel.setForeground(enabled ? enabledLabelColor : Color.GRAY);
+            config.setIntruderPayloadProcessor(enabled);
+        });
+
+        mainPanel.add(panel, BorderLayout.NORTH);
+        return addPanelInternalText("Optionally, adjust intruder-specific settings", mainPanel);
     }
 
     private JPanel createCaptureDataTable(String title, boolean isRequest) {
@@ -67,6 +208,7 @@ public class SettingsTab {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
         jlabel.setText(title);
+        jlabel.setBorder(new EmptyBorder(10, 0, 5, 0));
         panel.add(jlabel, BorderLayout.NORTH);
 
         Object[] tableColumnName = new Object[] { "Enabled", "Name", "Pattern Regex", "Target", "Re-Encrypt Proxy",
@@ -94,38 +236,22 @@ public class SettingsTab {
         updateTable(model, config, isRequest);
         JTable table = new JTable(model);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(60); // "Enabled"
-        columnModel.getColumn(1).setPreferredWidth(70); // "Name"
-        columnModel.getColumn(2).setPreferredWidth(100); // "Pattern Regex"
-        columnModel.getColumn(3).setPreferredWidth(50); // "Target"
-        columnModel.getColumn(4).setPreferredWidth(50); // "Re-Encrypt Proxy"
-        columnModel.getColumn(5).setPreferredWidth(300); // "Decode|Crypt"
-        columnModel.getColumn(6).setPreferredWidth(300); // "Encode|Crypt"
+        table.setFillsViewportHeight(true);
 
-        JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        panel.add(scrollPane);
-
-        // Adding buttons
-        JButton addButton = new JButton("Add");
-        addButton.addActionListener(new ActionListener() {
+        // Defined actions
+        ActionListener addAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-
                 var newPattern = createOrEditPatternPopup(isRequest);
                 if (newPattern == null) {
                     return; // User cancelled the dialog
                 }
                 config.addPattern(newPattern, isRequest);
-
                 updateTable(model, config, isRequest);
             }
-        });
+        };
 
-        JButton editButton = new JButton("Edit");
-        editButton.addActionListener(new ActionListener() {
+        ActionListener editAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int index = table.getSelectedRow();
@@ -134,25 +260,20 @@ public class SettingsTab {
                     if (modifiedPattern == null) {
                         return; // User cancelled the dialog
                     }
-
                     config.editPattern(index, modifiedPattern, isRequest);
                     updateTable(model, config, isRequest);
                 }
             }
-        });
+        };
 
-        JButton cloneButton = new JButton("Clone");
-        cloneButton.addActionListener(new ActionListener() {
+        ActionListener cloneAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-
                 int index = table.getSelectedRow();
                 if (index != -1) {
-                    // cloning the selected pattern
                     config.clonePattern(index, isRequest);
                     updateTable(model, config, isRequest);
 
-                    // moving the cloned pattern
                     int wishedIndex = index + 1;
                     int currentIndex = model.getRowCount() - 1;
                     while (currentIndex > wishedIndex) {
@@ -163,10 +284,9 @@ public class SettingsTab {
                     }
                 }
             }
-        });
+        };
 
-        JButton removeButton = new JButton("Remove");
-        removeButton.addActionListener(new ActionListener() {
+        ActionListener removeAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int[] selectedRows = table.getSelectedRows();
@@ -177,10 +297,9 @@ public class SettingsTab {
                 }
                 updateTable(model, config, isRequest);
             }
-        });
+        };
 
-        JButton upButton = new JButton("Up");
-        upButton.addActionListener(new ActionListener() {
+        ActionListener upAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int[] selectedRows = table.getSelectedRows();
@@ -191,10 +310,9 @@ public class SettingsTab {
                     table.addRowSelectionInterval(newRow, newRow);
                 }
             }
-        });
+        };
 
-        JButton downButton = new JButton("Down");
-        downButton.addActionListener(new ActionListener() {
+        ActionListener downAction = new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int[] selectedRows = table.getSelectedRows();
@@ -206,18 +324,118 @@ public class SettingsTab {
                     table.addRowSelectionInterval(newRow, newRow);
                 }
             }
-        });
+        };
 
-        JPanel buttonPanel = new JPanel(new GridLayout(8, 2));
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && !e.isConsumed()) {
+                    e.consume();
+                    int index = table.getSelectedRow();
+                    if (index != -1) {
+                        editAction
+                                .actionPerformed(new ActionEvent(e.getSource(), ActionEvent.ACTION_PERFORMED, "edit"));
+                    }
+                }
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                checkPopup(e);
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                checkPopup(e);
+            }
+
+            private void checkPopup(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int r = table.rowAtPoint(e.getPoint());
+                    if (r != -1 && !table.isRowSelected(r)) {
+                        table.setRowSelectionInterval(r, r);
+                    }
+
+                    JPopupMenu popup = new JPopupMenu();
+
+                    if (r != -1) {
+                        JMenuItem editItem = new JMenuItem("Edit");
+                        editItem.addActionListener(editAction);
+                        popup.add(editItem);
+
+                        JMenuItem cloneItem = new JMenuItem("Clone");
+                        cloneItem.addActionListener(cloneAction);
+                        popup.add(cloneItem);
+
+                        JMenuItem removeItem = new JMenuItem("Remove");
+                        removeItem.addActionListener(removeAction);
+                        popup.add(removeItem);
+
+                        popup.addSeparator();
+
+                        JMenuItem upItem = new JMenuItem("Up");
+                        upItem.addActionListener(upAction);
+                        popup.add(upItem);
+
+                        JMenuItem downItem = new JMenuItem("Down");
+                        downItem.addActionListener(downAction);
+                        popup.add(downItem);
+                    } else {
+                        JMenuItem addItem = new JMenuItem("Add");
+                        addItem.addActionListener(addAction);
+                        popup.add(addItem);
+                    }
+                    popup.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+        TableColumnModel columnModel = table.getColumnModel();
+        columnModel.getColumn(0).setPreferredWidth(70); // "Enabled"
+        columnModel.getColumn(1).setPreferredWidth(100); // "Name"
+        columnModel.getColumn(2).setPreferredWidth(150); // "Pattern Regex"
+        columnModel.getColumn(3).setPreferredWidth(200); // "Target"
+        columnModel.getColumn(4).setPreferredWidth(100); // "Re-Encrypt Proxy"
+        columnModel.getColumn(5).setPreferredWidth(500); // "Decode|Crypt"
+        columnModel.getColumn(6).setPreferredWidth(500); // "Encode|Crypt"
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        panel.add(scrollPane);
+
+        // Adding buttons
+
+        // Adding buttons
+        JButton addButton = new JButton("Add");
+        addButton.addActionListener(addAction);
+
+        JButton editButton = new JButton("Edit");
+        editButton.addActionListener(editAction);
+
+        JButton cloneButton = new JButton("Clone");
+        cloneButton.addActionListener(cloneAction);
+
+        JButton removeButton = new JButton("Remove");
+        removeButton.addActionListener(removeAction);
+
+        JButton upButton = new JButton("Up");
+        upButton.addActionListener(upAction);
+
+        JButton downButton = new JButton("Down");
+        downButton.addActionListener(downAction);
+
+        JPanel buttonPanel = new JPanel(new GridLayout(6, 1, 0, 5));
         buttonPanel.add(addButton);
         buttonPanel.add(cloneButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         buttonPanel.add(upButton);
         buttonPanel.add(downButton);
-        buttonPanel.setBorder(new EmptyBorder(1, 1, 1, 1));
+        buttonPanel.setBorder(new EmptyBorder(1, 5, 1, 1));
 
-        panel.add(buttonPanel, BorderLayout.EAST);
+        JPanel buttonWrapper = new JPanel(new BorderLayout());
+        buttonWrapper.add(buttonPanel, BorderLayout.NORTH);
+        panel.add(buttonWrapper, BorderLayout.EAST);
 
         return panel;
     }
@@ -229,52 +447,56 @@ public class SettingsTab {
     private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
         CapturePattern pattern = null;
 
-        JPanel panel = new JPanel(new GridLayout(0, 1));
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
         JTextField nameField = new JTextField();
         nameField.setToolTipText("Enter a name for the pattern.");
-        panel.add(new JLabel("Tab Name"));
-        panel.add(nameField);
+        addLabelAndField(panel, "Tab Name", nameField);
 
         JTextField regexField = new JTextField();
         regexField.setToolTipText("Enter the regex to match the part of the data you want to capture.");
-        panel.add(new JLabel("Pattern Regex (then, case sensitive)"));
-        panel.add(regexField);
+        addLabelAndField(panel, "Pattern Regex (case sensitive)", regexField);
 
         JTextField scopeField = new JTextField();
         scopeField.setToolTipText(
                 "Enter a regex to filter the URLs where this pattern will be applied. Leave empty to apply to all URLs.");
-        panel.add(new JLabel("Target URL Regex "));
-        panel.add(scopeField);
+        addLabelAndField(panel, "Target URL Regex ", scopeField);
 
         JTextField decCommand = new JTextField();
         decCommand.setToolTipText(
-                "Enter the command to decrypt/decode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
-        panel.add(new JLabel("Decode Command"));
-        panel.add(decCommand);
+                "Command to decrypt/decode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
+        addLabelAndField(panel, "Decode Command", decCommand);
+        addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
 
         JTextField encCommand = new JTextField();
         encCommand.setToolTipText(
-                "Enter the command to encrypt/encode the captured data. Use {DATA} to refer to the captured group, or {FILE} to refer to a temporary file containing the captured group.");
-        panel.add(new JLabel("Encode Command"));
-        panel.add(encCommand);
+                "Command to encrypt/encode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
+        addLabelAndField(panel, "Encode Command", encCommand);
+        addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
 
         JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
-        panel.add(enabledCheckbox);
+        addComponent(panel, enabledCheckbox);
 
-        JCheckBox cacheCommandsCheckbox = new JCheckBox(
-                "Use cache system for decoding (save decoded outputs, and load them when a decode command fails, useful if keys change often)",
-                true);
-        panel.add(cacheCommandsCheckbox);
+        JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decoding", true);
+        addComponent(panel, cacheCommandsCheckbox);
+        addGrayLabel(panel, "Save decoded outputs, and load them when a decode command fails");
 
-        JCheckBox saveToLogCheckbox = new JCheckBox(
-                "Log data to the file defined in Settings (so, later, you can easily search for plaintext data)", true);
-        panel.add(saveToLogCheckbox);
+        JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in Extra Settings", true);
+        addComponent(panel, saveToLogCheckbox);
+        addGrayLabel(panel,
+                "Later you can open the file and easily search for plaintext data. Proxy data will also be logged if the option below is enabled");
 
-        JCheckBox patchProxyCheckbox = new JCheckBox("Automatically re-encrypt proxy "
-                + (isRequest ? "requests" : "responses") + " (if Log data is enabled, they will also be logged)",
-                false);
-        panel.add(patchProxyCheckbox);
+        JCheckBox patchProxyCheckbox = new JCheckBox(
+                "Automatically re-encrypt proxy " + (isRequest ? "requests" : "responses"), false);
+        addComponent(panel, patchProxyCheckbox);
+
+        if (isRequest) {
+            addGrayLabel(panel,
+                    "One of the main use cases is when the client-side is encrypting using only a public key, so you cannot decrypt.");
+            addGrayLabel(panel,
+                    "However, you can create your own pair of keys, set your public key in the client-side, and then use this option to decrypt using your private key and re-encrypt using the original public key");
+        }
 
         if (existingPattern != null) {
             // If editing an existing pattern, populate the fields with its data
@@ -302,7 +524,7 @@ public class SettingsTab {
         JOptionPane optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null,
                 options, options[0]);
 
-        JDialog dialog = optionPane.createDialog("Add New Pattern");
+        JDialog dialog = optionPane.createDialog(existingPattern == null ? "Adding Pattern" : "Editing Pattern");
 
         while (true) {
             dialog.setVisible(true);
@@ -350,6 +572,33 @@ public class SettingsTab {
             break;
         }
         return pattern;
+    }
+
+    private void addLabelAndField(JPanel panel, String labelText, JTextField field) {
+        JLabel label = new JLabel(labelText);
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(label);
+
+        field.setAlignmentX(Component.LEFT_ALIGNMENT);
+        field.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 30));
+        panel.add(field);
+
+        panel.add(javax.swing.Box.createVerticalStrut(5));
+    }
+
+    private void addComponent(JPanel panel, JComponent comp) {
+        comp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(comp);
+        panel.add(javax.swing.Box.createVerticalStrut(2));
+    }
+
+    private void addGrayLabel(JPanel panel, String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(label.getFont().deriveFont(11f));
+        label.setForeground(Color.GRAY);
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(label);
+        panel.add(javax.swing.Box.createVerticalStrut(1));
     }
 
     private JPanel createSettingsScreen() {
@@ -411,13 +660,13 @@ public class SettingsTab {
 
         painelBorderLayout.add(panel, BorderLayout.NORTH);
 
-        return addPanelInternalText("• Optionally, adjust the settings", painelBorderLayout);
+        return addPanelInternalText("Optionally, adjust extra settings", painelBorderLayout);
     }
 
     private void createCacheSettings(JPanel panel) {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
-        jlabel.setText("Cache System for Decoding");
+        jlabel.setText("• Cache System for Decoding");
         jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
         panel.add(jlabel);
@@ -436,7 +685,7 @@ public class SettingsTab {
 
         clearButton.addActionListener(e -> {
             int result = JOptionPane.showConfirmDialog(null,
-                    "Are you sure you want to clear the decryption cache?\nYou may lose important data.\nThis action cannot be undone.",
+                    "Are you sure you want to clear the decryption cache?\nYou may lose important data!!!\nThis action cannot be undone.",
                     "Clear Cache", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result == JOptionPane.YES_OPTION) {
                 config.getDecryptionCache().clear();
@@ -458,7 +707,8 @@ public class SettingsTab {
         panel.add(cachePanel);
 
         JLabel descriptionLabel = new JLabel("Cache data is stored in the Burp project file.");
-        descriptionLabel.setFont(new Font(descriptionLabel.getFont().getName(), Font.ITALIC, 11));
+        descriptionLabel.setFont(descriptionLabel.getFont().deriveFont(11f));
+        descriptionLabel.setForeground(Color.GRAY);
         descriptionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         descriptionLabel.setBorder(new EmptyBorder(5, 0, 0, 0));
         panel.add(descriptionLabel);
@@ -482,34 +732,57 @@ public class SettingsTab {
 
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
-        jlabel.setText("Print Tab for " + currentString);
+        jlabel.setText("• Print Tab for " + currentString);
         jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
         panel.add(jlabel);
 
-        JCheckBox enablePrintTab = new JCheckBox(
-                String.format("Enable a read-only Print Tab for %s. Useful for taking screenshots.", currentString),
+        // Enable Print Tab checkbox
+        JCheckBox enablePrintTab = new JCheckBox(String.format("Enable a read-only Print Tab for %s", currentString),
                 config.isPrintEditorEnabled(isRequest));
         enablePrintTab.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JCheckBox escapeDoubleQuotes = new JCheckBox(String.format(
-                "Escape double quotes in decoded values within the Print Tab for %s. This may improve how the content is displayed.",
-                currentString), config.isEscapingDoubleQuotes(isRequest));
+        panel.add(enablePrintTab);
+
+        // Explanation for enable print tab
+        JLabel enableExplanation = new JLabel("Useful for taking screenshots");
+        enableExplanation.setFont(enableExplanation.getFont().deriveFont(11f));
+        enableExplanation.setForeground(Color.GRAY);
+        enableExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        enableExplanation.setBorder(new EmptyBorder(0, 24, 10, 0));
+        panel.add(enableExplanation);
+
+        // Escape double quotes checkbox
+        JCheckBox escapeDoubleQuotes = new JCheckBox(
+                String.format("Escape double quotes in decoded values within the Print Tab for %s", currentString),
+                config.isEscapingDoubleQuotes(isRequest));
         escapeDoubleQuotes.setAlignmentX(Component.LEFT_ALIGNMENT);
         escapeDoubleQuotes.setEnabled(enablePrintTab.isSelected());
+        escapeDoubleQuotes.setBorder(new EmptyBorder(0, 20, 0, 0));
+        panel.add(escapeDoubleQuotes);
+
+        // Explanation for escape double quotes
+        JLabel escapeExplanation = new JLabel("This may improve how the content is displayed");
+        escapeExplanation.setFont(escapeExplanation.getFont().deriveFont(11f));
+        escapeExplanation.setForeground(Color.GRAY);
+        escapeExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        escapeExplanation.setBorder(new EmptyBorder(0, 44, 10, 0));
+        panel.add(escapeExplanation);
+
+        // Highlight patterns checkbox
         JCheckBox highlightPrintTab = new JCheckBox("Highlight patterns found in Print Tab for " + currentString,
                 config.isHighlightingPrintEditor(isRequest));
         highlightPrintTab.setAlignmentX(Component.LEFT_ALIGNMENT);
         highlightPrintTab.setEnabled(enablePrintTab.isSelected());
+        highlightPrintTab.setBorder(new EmptyBorder(0, 20, 5, 0));
+        panel.add(highlightPrintTab);
+
+        // Color button
         CircularColorButton colorButton = new CircularColorButton("▪ Select a color:", null,
                 config.getPrintEditorHighlightColor(isRequest), 20);
         colorButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         colorButton.setEnabled(enablePrintTab.isSelected() && highlightPrintTab.isSelected());
-
-        // Add spacing for checkboxes
-        enablePrintTab.setBorder(new EmptyBorder(0, 0, 5, 0));
-        escapeDoubleQuotes.setBorder(new EmptyBorder(0, 20, 5, 0));
-        highlightPrintTab.setBorder(new EmptyBorder(0, 20, 5, 0));
         colorButton.setBorder(new EmptyBorder(0, 20, 0, 0));
+        panel.add(colorButton);
 
         enablePrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
@@ -518,13 +791,11 @@ public class SettingsTab {
             highlightPrintTab.setEnabled(isSelected);
             colorButton.setEnabled(isSelected && highlightPrintTab.isSelected());
         });
-        panel.add(enablePrintTab);
 
         escapeDoubleQuotes.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateShouldEscapeDoubleQuotes(isSelected, isRequest);
         });
-        panel.add(escapeDoubleQuotes);
 
         highlightPrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
@@ -532,13 +803,10 @@ public class SettingsTab {
             colorButton.setEnabled(isSelected);
         });
 
-        panel.add(highlightPrintTab);
-
         colorButton.setColorAction((color) -> {
             config.updatePrintEditorHighlightColor(color, isRequest);
             return null;
         });
-        panel.add(colorButton);
     }
 
     private int moveRow(DefaultTableModel model, int fromIndex, int toIndex) {
@@ -559,8 +827,10 @@ public class SettingsTab {
     }
 
     private void setPlaceholder(JTextField textField, String placeholder) {
-        textField.setText(placeholder); // Placeholder text
-        textField.setForeground(Color.GRAY); // Set placeholder text color
+        if (textField.getText().isEmpty()) {
+            textField.setText(placeholder); // Placeholder text
+            textField.setForeground(Color.GRAY); // Set placeholder text color
+        }
         textField.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent e) {
