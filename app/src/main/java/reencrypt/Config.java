@@ -20,12 +20,14 @@ public class Config implements Serializable {
     File logFile;
     BufferedWriter logWriter;
     String logFilePath;
-    boolean enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes,
-            escapeResponseDoubleQuotes, highlightRequestPrintEditor, highlightResponsePrintEditor, reloadRequestEditors,
-            reloadResponseEditors;
+    boolean enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes, escapeResponseDoubleQuotes,
+            highlightRequestPrintEditor, highlightResponsePrintEditor, reloadRequestEditors, reloadResponseEditors;
     Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
     PersistedObject persisted;
     DecryptionCache decryptionCache;
+    // Intruder settings
+    boolean enableIntruderResponseDecrypt, enableIntruderRequestEncrypt, enableIntruderPayloadProcessor;
+    String intruderEncryptCommand;
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
@@ -47,6 +49,11 @@ public class Config implements Serializable {
         this.reloadRequestEditors = true;
         this.reloadResponseEditors = true;
         this.decryptionCache = new DecryptionCache(persisted);
+        // Intruder settings
+        this.enableIntruderResponseDecrypt = getPreference("enableIntruderResponseDecrypt", true);
+        this.enableIntruderRequestEncrypt = getPreference("enableIntruderRequestEncrypt", true);
+        this.enableIntruderPayloadProcessor = getPreference("enableIntruderPayloadProcessor", false);
+        this.intruderEncryptCommand = getPreference("intruderEncryptCommand", "");
     }
 
     public DecryptionCache getDecryptionCache() {
@@ -93,8 +100,7 @@ public class Config implements Serializable {
 
     public CapturePattern[] getActivePatterns(boolean isRequest) {
         ArrayList<CapturePattern> result = new ArrayList<>();
-        var patterns = isRequest ? requestPatterns
-                : responsePatterns;
+        var patterns = isRequest ? requestPatterns : responsePatterns;
         for (var pattern : patterns) {
             if (pattern.isEnabled())
                 result.add(pattern);
@@ -220,6 +226,43 @@ public class Config implements Serializable {
         }
     }
 
+    // Intruder settings getters and setters
+    public boolean isIntruderResponseDecryptEnabled() {
+        return enableIntruderResponseDecrypt;
+    }
+
+    public void setIntruderResponseDecrypt(boolean enabled) {
+        this.enableIntruderResponseDecrypt = enabled;
+        this.persisted.setBoolean("enableIntruderResponseDecrypt", enabled);
+    }
+
+    public boolean isIntruderRequestEncryptEnabled() {
+        return enableIntruderRequestEncrypt;
+    }
+
+    public void setIntruderRequestEncrypt(boolean enabled) {
+        this.enableIntruderRequestEncrypt = enabled;
+        this.persisted.setBoolean("enableIntruderRequestEncrypt", enabled);
+    }
+
+    public boolean isIntruderPayloadProcessorEnabled() {
+        return enableIntruderPayloadProcessor;
+    }
+
+    public void setIntruderPayloadProcessor(boolean enabled) {
+        this.enableIntruderPayloadProcessor = enabled;
+        this.persisted.setBoolean("enableIntruderPayloadProcessor", enabled);
+    }
+
+    public String getIntruderEncryptCommand() {
+        return intruderEncryptCommand;
+    }
+
+    public void setIntruderEncryptCommand(String command) {
+        this.intruderEncryptCommand = command;
+        this.persisted.setString("intruderEncryptCommand", command);
+    }
+
     public void addPattern(CapturePattern newPattern, boolean isRequest) {
         getPatterns(isRequest).add(newPattern);
         setReloadEditors(isRequest);
@@ -265,18 +308,6 @@ public class Config implements Serializable {
         }
         return patterns;
     }
-
-    // public String getCommand(String cipherText, String defaultCommand) {
-    // String hash = Utils.getHash(cipherText.getBytes());
-    // String commandLoaded = this.persisted.getString(cmdKeyPrefix + hash);
-    // if (commandLoaded == null) {
-    // if (shouldSaveCommands()) {
-    // this.persisted.setString(cmdKeyPrefix + hash, defaultCommand);
-    // }
-    // commandLoaded = defaultCommand;
-    // }
-    // return commandLoaded;
-    // }
 
     public boolean checkReloadEditors(boolean isRequest) {
         if (isRequest) {

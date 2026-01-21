@@ -7,11 +7,12 @@ import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.core.ToolType;
 
 public class RequestTab extends RequestResponseTab implements ExtensionProvidedHttpRequestEditor {
     HttpService httpService;
 
-    public RequestTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly, String toolType) {
+    public RequestTab(MontoyaApi api, ReEncrypt reEncrypt, boolean readOnly, ToolType toolType) {
         super(true, api, reEncrypt, readOnly, toolType);
     }
 

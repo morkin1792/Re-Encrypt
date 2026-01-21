@@ -16,7 +16,6 @@ public class ShellCommand {
     }
 
     private void patch(String rawCommand, String text) throws IOException {
-        // Simple implementation without external libraries
         this.command = rawCommand.replace(Config.dataMarker, text);
         if (this.command.contains(Config.fileMarker)) {
             File tempFile = File.createTempFile("reencrypt-", ".input");
@@ -28,7 +27,6 @@ public class ShellCommand {
 
     public CommandOutput execute() throws IOException, InterruptedException {
         try {
-            System.out.println("Executing command: " + command);
             String os = System.getProperty("os.name").toLowerCase();
             ProcessBuilder builder;
 
@@ -42,17 +40,26 @@ public class ShellCommand {
             Process process = builder.start();
 
             StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append(System.lineSeparator());
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                char[] buffer = new char[4096];
+                int bytesRead;
+                while ((bytesRead = reader.read(buffer)) != -1) {
+                    output.append(buffer, 0, bytesRead);
                 }
             }
 
             int exitCode = process.waitFor();
 
-            return new CommandOutput(output.toString().trim(), exitCode);
+            String result = output.toString();
+            // Remove the last newline char if present (echo puts a newline usually)
+            // But don't trim other whitespaces
+            if (result.endsWith("\r\n")) {
+                result = result.substring(0, result.length() - 2);
+            } else if (result.endsWith("\n")) {
+                result = result.substring(0, result.length() - 1);
+            }
+
+            return new CommandOutput(result, exitCode);
         } finally {
             DeleteTempFile();
         }

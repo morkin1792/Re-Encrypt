@@ -142,13 +142,14 @@ public class RequestResponseEditor {
     }
 
     public void setCaretPosition(int position) {
-        System.out.println("setCaretPosition: " + position + " size: " + size);
-        if (size <= 0 || position < 0 || position > size)
+        if (size <= 0 || position < 0)
             return;
+        if (position > size) {
+            position = size;
+        }
         if (isResponse) {
             httpResponseEditor.setCaretPosition(position);
         } else {
-            System.out.println("setCaretPosition requestEditor: " + position);
             httpRequestEditor.setCaretPosition(position);
         }
     }

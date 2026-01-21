@@ -70,7 +70,7 @@ public class DecryptionCache {
                 cache = new HashMap<>();
             }
         } catch (Exception e) {
-            System.out.println("Failed to load decryption cache: " + e.getMessage());
+            System.out.println("Failed to load decryption cache: " + e.toString());
             cache = new HashMap<>();
         }
     }
@@ -80,7 +80,7 @@ public class DecryptionCache {
             String serialized = Utils.serializeMap(cache);
             persisted.setString(CACHE_KEY, serialized);
         } catch (IOException e) {
-            System.out.println("Failed to save decryption cache: " + e.getMessage());
+            System.out.println("Failed to save decryption cache: " + e.toString());
         }
     }
 }
