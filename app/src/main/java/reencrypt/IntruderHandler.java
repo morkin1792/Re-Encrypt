@@ -120,12 +120,12 @@ public class IntruderHandler implements HttpHandler {
      */
     private byte[] applyEncryption(byte[] content, String url, LogData logData, StringBuilder notes) throws Exception {
         for (var pattern : reEncrypt.getConfig().getActivePatterns(true)) {
-            if (!pattern.isTarget(url))
+            if (!pattern.isTarget(url, api))
                 continue;
             try {
                 // Intruder sends plaintext requests.
-                // 1. Find the match indexes using the pattern regex
-                int[] indexes = ReEncrypt.searchPattern(pattern.getPatternRegex(), content);
+                // 1. Find the match indexes using the capture regex
+                int[] indexes = ReEncrypt.searchPattern(pattern.getCaptureRegex(), content);
 
                 // 2. Extract the plaintext value
                 String contentStr = new String(content);
@@ -146,7 +146,7 @@ public class IntruderHandler implements HttpHandler {
      */
     private byte[] applyDecryption(byte[] content, String url, LogData logData, StringBuilder notes) throws Exception {
         for (var pattern : reEncrypt.getConfig().getActivePatterns(false)) {
-            if (!pattern.isTarget(url))
+            if (!pattern.isTarget(url, api))
                 continue;
             try {
                 // Search for ciphertext and decrypt

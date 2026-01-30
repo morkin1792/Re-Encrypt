@@ -3,17 +3,22 @@ package reencrypt;
 import java.io.Serializable;
 import java.util.regex.Pattern;
 
+import burp.api.montoya.MontoyaApi;
+
 public class CapturePattern implements Serializable {
-    boolean enabled, patchProxy, useCacheSystem, saveToLog;
+    boolean enabled, patchProxy, useCacheSystem, saveToLog, useProjectScope;
     String name;
-    String patternRegex;
+    String captureRegex;
     String urlTargetRegex;
     String decCommand, encCommand;
+    PatternType patternType;
+    String patternInput; // The user input (header name, param name, or custom regex)
 
-    public CapturePattern(String name, String patternRegex, String urlTargetRegex, String decCommand, String encCommand,
-            boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog) {
+    public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
+            boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog, boolean useProjectScope,
+            PatternType patternType, String patternInput) {
         this.enabled = enabled;
-        this.patternRegex = patternRegex;
+        this.captureRegex = captureRegex;
         this.urlTargetRegex = urlTargetRegex;
         this.name = name;
         this.decCommand = decCommand;
@@ -21,26 +26,54 @@ public class CapturePattern implements Serializable {
         this.patchProxy = patchProxy;
         this.useCacheSystem = useCacheSystem;
         this.saveToLog = saveToLog;
+        this.useProjectScope = useProjectScope;
+        this.patternType = patternType;
+        this.patternInput = patternInput;
+    }
+
+    // Legacy constructor for backward compatibility
+    public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
+            boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog) {
+        this(name, captureRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy, useCacheSystem, saveToLog,
+                false, PatternType.CUSTOM_REGEX, captureRegex);
     }
 
     public boolean isEnabled() {
         return enabled;
     }
 
-    public String getPatternRegex() {
-        return patternRegex;
+    public String getCaptureRegex() {
+        return captureRegex;
     }
 
     public String getURLTargetRegex() {
         return urlTargetRegex;
     }
 
-    public boolean isTarget(String url) {
+    public PatternType getPatternType() {
+        return patternType;
+    }
+
+    public String getPatternInput() {
+        return patternInput;
+    }
+
+    public boolean isTarget(String url, MontoyaApi api) {
+        if (useProjectScope) {
+            return api.scope().isInScope(url);
+        }
+        if (urlTargetRegex == null || urlTargetRegex.isEmpty()) {
+            return true; // Empty regex matches all URLs
+        }
         return Pattern.compile(urlTargetRegex).matcher(url).find();
     }
 
-    public boolean shouldPatchProxy(String url) {
-        return patchProxy && isTarget(url);
+    public boolean usesProjectScope() {
+        return useProjectScope;
+    }
+
+    public boolean shouldPatchProxy(String url, MontoyaApi api) {
+        return patchProxy && isTarget(url, api);
     }
 
     public boolean shouldPatchProxy() {
@@ -72,7 +105,7 @@ public class CapturePattern implements Serializable {
     }
 
     public CapturePattern clone() {
-        return new CapturePattern(name, patternRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy,
-                useCacheSystem, saveToLog);
+        return new CapturePattern(name, captureRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy,
+                useCacheSystem, saveToLog, useProjectScope, patternType, patternInput);
     }
 }

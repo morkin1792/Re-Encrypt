@@ -91,7 +91,7 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
     byte[] applyPatch(byte[] content, String url, boolean isRequest, LogData logData, StringBuilder notes)
             throws Exception {
         for (var pattern : reEncrypt.getConfig().getActivePatterns(isRequest)) {
-            if (!pattern.shouldPatchProxy(url))
+            if (!pattern.shouldPatchProxy(url, api))
                 continue;
             try {
                 CommandOutput commandOutput = reEncrypt.searchAndDecrypt(pattern, content, logData);

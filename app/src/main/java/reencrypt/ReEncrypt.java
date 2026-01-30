@@ -19,10 +19,9 @@ public class ReEncrypt {
         return config;
     }
 
-    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern,
-            String plainText, LogData logData)
+    public byte[] encryptAndPatch(byte[] request, CapturePattern pattern, String plainText, LogData logData)
             throws IOException, InterruptedException, PatternException, CommandException {
-        int[] indexes = searchPattern(pattern.getPatternRegex(), request);
+        int[] indexes = searchPattern(pattern.getCaptureRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = encrypt(pattern.getEncCommand(), plainText);
@@ -33,9 +32,8 @@ public class ReEncrypt {
         return patchRequest(request, beginIndex, endIndex, cipherText.getBytes());
     }
 
-    public byte[] matchReplace(byte[] request, CapturePattern pattern, String newValue)
-            throws PatternException {
-        int[] indexes = searchPattern(pattern.getPatternRegex(), request);
+    public byte[] matchReplace(byte[] request, CapturePattern pattern, String newValue) throws PatternException {
+        int[] indexes = searchPattern(pattern.getCaptureRegex(), request);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         return patchRequest(request, beginIndex, endIndex, newValue.getBytes());
@@ -69,7 +67,7 @@ public class ReEncrypt {
 
     public CommandOutput searchAndDecrypt(CapturePattern pattern, byte[] content, LogData logData)
             throws IOException, InterruptedException, PatternException {
-        int[] indexes = searchPattern(pattern.getPatternRegex(), content);
+        int[] indexes = searchPattern(pattern.getCaptureRegex(), content);
         int beginIndex = indexes[0];
         int endIndex = indexes[1];
         String cipherText = new String(content).substring(beginIndex, endIndex);
@@ -82,9 +80,8 @@ public class ReEncrypt {
     }
 
     /**
-     * Decrypt with cache fallback.
-     * On success: caches the result if pattern has caching enabled.
-     * On failure: returns cached result if available.
+     * Decrypt with cache fallback. On success: caches the result if pattern has
+     * caching enabled. On failure: returns cached result if available.
      */
     private CommandOutput decryptWithCache(CapturePattern pattern, String cipherText)
             throws IOException, InterruptedException {
@@ -104,8 +101,7 @@ public class ReEncrypt {
 
     }
 
-    private CommandOutput decrypt(String decCommand, String cipherText)
-            throws IOException, InterruptedException {
+    private CommandOutput decrypt(String decCommand, String cipherText) throws IOException, InterruptedException {
         ShellCommand command = new ShellCommand(decCommand, cipherText);
         return command.execute();
     }

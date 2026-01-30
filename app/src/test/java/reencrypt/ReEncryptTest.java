@@ -118,7 +118,7 @@ public class ReEncryptTest {
         byte[] request = "val=myPayload&other=1".getBytes();
 
         // 1. Find indexes
-        int[] indexes = ReEncrypt.searchPattern(pattern.getPatternRegex(), request);
+        int[] indexes = ReEncrypt.searchPattern(pattern.getCaptureRegex(), request);
 
         // 2. Extract
         String contentStr = new String(request);
