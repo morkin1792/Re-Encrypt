@@ -5,10 +5,15 @@ import javax.swing.table.TableColumnModel;
 
 import reencrypt.CapturePattern;
 import reencrypt.Config;
+import reencrypt.PatternType;
 
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -16,9 +21,15 @@ import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -34,6 +45,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.JComboBox;
 import javax.swing.border.EmptyBorder;
 
 public class SettingsTab {
@@ -74,12 +86,11 @@ public class SettingsTab {
         JLabel titleLabel = new JLabel("• Intruder Settings");
         titleLabel.setFont(hackFont);
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        titleLabel.setBorder(new EmptyBorder(10, 0, 15, 0));
+        titleLabel.setBorder(new EmptyBorder(0, 0, 15, 0));
         panel.add(titleLabel);
 
         // Decrypt responses checkbox
-        JCheckBox decryptResponsesCheckbox = new JCheckBox(
-                "Auto-decrypt intruder responses (responses become plaintext)");
+        JCheckBox decryptResponsesCheckbox = new JCheckBox("Auto-decrypt intruder responses");
         decryptResponsesCheckbox.setSelected(config.isIntruderResponseDecryptEnabled());
         decryptResponsesCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
         decryptResponsesCheckbox
@@ -88,7 +99,7 @@ public class SettingsTab {
 
         // Explanation for decrypt responses
         JLabel decryptExplanation = new JLabel(
-                "Automatically DECRYPT using RESPONSE decode commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Responses");
+                "Automatically DECRYPT using RESPONSE decrypt commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Responses");
         decryptExplanation.setFont(decryptExplanation.getFont().deriveFont(11f));
         decryptExplanation.setForeground(Color.GRAY);
         decryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -97,14 +108,14 @@ public class SettingsTab {
 
         // Encrypt requests checkbox
         JCheckBox encryptRequestsCheckbox = new JCheckBox(
-                "Auto-encrypt intruder requests (SEND PAYLOADS IN PLAINTEXT)");
+                "Auto-encrypt intruder requests (You HAVE to send payloads in PLAINTEXT)");
         encryptRequestsCheckbox.setSelected(config.isIntruderRequestEncryptEnabled());
         encryptRequestsCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(encryptRequestsCheckbox);
 
         // Explanation for encrypt requests
         JLabel encryptExplanation = new JLabel(
-                "Automatically ENCRYPT using REQUEST encode commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Requests");
+                "Automatically ENCRYPT using REQUEST encrypt commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Requests");
         encryptExplanation.setFont(encryptExplanation.getFont().deriveFont(11f));
         encryptExplanation.setForeground(Color.GRAY);
         encryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -129,9 +140,9 @@ public class SettingsTab {
         JPanel commandPanel = new JPanel(new BorderLayout(5, 0));
         commandPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         commandPanel.setBorder(new EmptyBorder(5, 24, 5, 5));
-        commandPanel.setMaximumSize(new java.awt.Dimension(800, 45));
+        commandPanel.setMaximumSize(new Dimension(800, 45));
 
-        JLabel commandLabel = new JLabel("Encode Command:");
+        JLabel commandLabel = new JLabel("Encrypt Command:");
         Color enabledLabelColor = commandLabel.getForeground();
         boolean payloadProcessorEnabled = config.isIntruderPayloadProcessorEnabled();
         commandLabel.setForeground(payloadProcessorEnabled ? enabledLabelColor : Color.GRAY);
@@ -142,16 +153,16 @@ public class SettingsTab {
                 "Command to use in Intruder Payload Processor. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
         String commandFieldPlaceholder = "python /tmp/script.js --encrypt --file {FILE}";
         setPlaceholder(commandField, commandFieldPlaceholder);
-        commandField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+        commandField.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) {
                 save();
             }
 
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 save();
             }
 
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 save();
             }
 
@@ -208,11 +219,11 @@ public class SettingsTab {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
         jlabel.setText(title);
-        jlabel.setBorder(new EmptyBorder(10, 0, 5, 0));
+        jlabel.setBorder(new EmptyBorder(isRequest ? 0 : 20, 0, 5, 0));
         panel.add(jlabel, BorderLayout.NORTH);
 
-        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Pattern Regex", "Target", "Re-Encrypt Proxy",
-                "Dec(ode|rypt) Command", "Enc(ode|rypt) Command" };
+        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Capture Regex", "Target", "Patch Proxy",
+                "Decrypt Command", "Encrypt Command" };
 
         // Creating tables
         DefaultTableModel model = new DefaultTableModel(null, tableColumnName) {
@@ -221,7 +232,7 @@ public class SettingsTab {
                 switch (getColumnName(columnIndex)) {
                 case "Enabled":
                     return Boolean.class;
-                case "Re-Encrypt Proxy":
+                case "Patch Proxy":
                     return Boolean.class;
                 }
                 return super.getColumnClass(columnIndex);
@@ -326,9 +337,9 @@ public class SettingsTab {
             }
         };
 
-        table.addMouseListener(new java.awt.event.MouseAdapter() {
+        table.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2 && !e.isConsumed()) {
                     e.consume();
                     int index = table.getSelectedRow();
@@ -340,16 +351,16 @@ public class SettingsTab {
             }
 
             @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
+            public void mouseReleased(MouseEvent e) {
                 checkPopup(e);
             }
 
             @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 checkPopup(e);
             }
 
-            private void checkPopup(java.awt.event.MouseEvent e) {
+            private void checkPopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     int r = table.rowAtPoint(e.getPoint());
                     if (r != -1 && !table.isRowSelected(r)) {
@@ -392,11 +403,11 @@ public class SettingsTab {
         TableColumnModel columnModel = table.getColumnModel();
         columnModel.getColumn(0).setPreferredWidth(70); // "Enabled"
         columnModel.getColumn(1).setPreferredWidth(100); // "Name"
-        columnModel.getColumn(2).setPreferredWidth(150); // "Pattern Regex"
-        columnModel.getColumn(3).setPreferredWidth(200); // "Target"
-        columnModel.getColumn(4).setPreferredWidth(100); // "Re-Encrypt Proxy"
-        columnModel.getColumn(5).setPreferredWidth(500); // "Decode|Crypt"
-        columnModel.getColumn(6).setPreferredWidth(500); // "Encode|Crypt"
+        columnModel.getColumn(2).setPreferredWidth(150); // "Capture Regex"
+        columnModel.getColumn(3).setPreferredWidth(150); // "Target"
+        columnModel.getColumn(4).setPreferredWidth(100); // "Patch Proxy"
+        columnModel.getColumn(5).setPreferredWidth(500); // "Decrypt Command"
+        columnModel.getColumn(6).setPreferredWidth(500); // "Encrypt Command"
 
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
@@ -450,74 +461,184 @@ public class SettingsTab {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
+        // === Tab Name ===
         JTextField nameField = new JTextField();
         nameField.setToolTipText("Enter a name for the pattern.");
         addLabelAndField(panel, "Tab Name", nameField);
 
-        JTextField regexField = new JTextField();
-        regexField.setToolTipText("Enter the regex to match the part of the data you want to capture.");
-        addLabelAndField(panel, "Pattern Regex (case sensitive)", regexField);
+        // === Capture Pattern Section (horizontal layout) ===
+        JLabel patternLabel = new JLabel("Capture Pattern");
+        patternLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(patternLabel);
 
-        JTextField scopeField = new JTextField();
-        scopeField.setToolTipText(
-                "Enter a regex to filter the URLs where this pattern will be applied. Leave empty to apply to all URLs.");
-        addLabelAndField(panel, "Target URL Regex ", scopeField);
+        JPanel patternRow = new JPanel();
+        patternRow.setLayout(new BoxLayout(patternRow, BoxLayout.X_AXIS));
+        patternRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+        JComboBox<String> patternTypeCombo = new JComboBox<>(PatternType.getDisplayNames());
+        patternTypeCombo.setMaximumSize(new Dimension(250, 30));
+        patternRow.add(patternTypeCombo);
+        patternRow.add(Box.createHorizontalStrut(10));
+
+        // Dynamic input field panel (next to dropdown)
+        JLabel patternInputLabel = new JLabel("Header Name");
+        JTextField patternInputField = new JTextField();
+        patternInputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+        JPanel patternInputPanel = new JPanel();
+        patternInputPanel.setLayout(new BoxLayout(patternInputPanel, BoxLayout.X_AXIS));
+        patternInputPanel.add(patternInputLabel);
+        patternInputPanel.add(Box.createHorizontalStrut(5));
+        patternInputPanel.add(patternInputField);
+
+        patternRow.add(patternInputPanel);
+        panel.add(patternRow);
+        panel.add(Box.createVerticalStrut(5));
+
+        // Hint label for Custom Regex (hidden by default)
+        JLabel regexHintLabel = new JLabel();
+        regexHintLabel.setFont(regexHintLabel.getFont().deriveFont(11f));
+        regexHintLabel.setForeground(Color.GRAY);
+        regexHintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        regexHintLabel.setVisible(true);
+        panel.add(regexHintLabel);
+        panel.add(Box.createVerticalStrut(5));
+
+        // Update input field label based on selection
+        patternTypeCombo.addActionListener(e -> {
+            PatternType selected = PatternType.fromDisplayName((String) patternTypeCombo.getSelectedItem());
+            switch (selected) {
+            case HEADER:
+                patternInputLabel.setText("Header Name");
+                patternInputPanel.setVisible(true);
+                regexHintLabel.setText("Case insensitive");
+                break;
+            case PARAMETER_URL_ENCODED:
+            case PARAMETER_JSON:
+                patternInputLabel.setText("Parameter Name");
+                patternInputPanel.setVisible(true);
+                regexHintLabel.setText("Case sensitive");
+                break;
+            case WHOLE_BODY:
+                patternInputPanel.setVisible(false);
+                regexHintLabel.setText(" ");
+                break;
+            case CUSTOM_REGEX:
+            default:
+                patternInputLabel.setText("Capture Regex");
+                patternInputPanel.setVisible(true);
+                regexHintLabel.setText("Case sensitive. Use (.*) or (.*?) to define which part should be captured");
+                break;
+            }
+            panel.revalidate();
+        });
+
+        // === Target Scope Section (horizontal layout) ===
+        JLabel scopeLabel = new JLabel("Target URL Scope");
+        scopeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(scopeLabel);
+
+        JPanel scopeRow = new JPanel();
+        scopeRow.setLayout(new BoxLayout(scopeRow, BoxLayout.X_AXIS));
+        scopeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        String[] scopeTypes = { "Any", "Project In-Scope", "Custom Scope" };
+        JComboBox<String> scopeTypeCombo = new JComboBox<>(scopeTypes);
+        scopeTypeCombo.setMaximumSize(new Dimension(200, 30));
+        scopeRow.add(scopeTypeCombo);
+        scopeRow.add(Box.createHorizontalStrut(10));
+
+        // Dynamic scope input field (next to dropdown)
+        JLabel scopeInputLabel = new JLabel("URL Regex");
+        JTextField scopeInputField = new JTextField();
+        scopeInputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+        JPanel scopeInputPanel = new JPanel();
+        scopeInputPanel.setLayout(new BoxLayout(scopeInputPanel, BoxLayout.X_AXIS));
+        scopeInputPanel.add(scopeInputLabel);
+        scopeInputPanel.add(Box.createHorizontalStrut(5));
+        scopeInputPanel.add(scopeInputField);
+        scopeInputPanel.setVisible(false); // Hidden by default ("Any" selected)
+
+        scopeRow.add(scopeInputPanel);
+        panel.add(scopeRow);
+        panel.add(Box.createVerticalStrut(5));
+
+        scopeTypeCombo.addActionListener(e -> {
+            String selected = (String) scopeTypeCombo.getSelectedItem();
+            scopeInputPanel.setVisible("Custom Scope".equals(selected));
+            panel.revalidate();
+        });
+
+        // === Commands Section ===
         JTextField decCommand = new JTextField();
         decCommand.setToolTipText(
                 "Command to decrypt/decode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
-        addLabelAndField(panel, "Decode Command", decCommand);
+        addLabelAndField(panel, "Decrypt Command", decCommand);
         addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
 
         JTextField encCommand = new JTextField();
         encCommand.setToolTipText(
                 "Command to encrypt/encode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
-        addLabelAndField(panel, "Encode Command", encCommand);
+        addLabelAndField(panel, "Encrypt Command", encCommand);
         addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
 
+        // === Checkboxes ===
         JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
         addComponent(panel, enabledCheckbox);
 
-        JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decoding", true);
+        JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decrypting", true);
         addComponent(panel, cacheCommandsCheckbox);
-        addGrayLabel(panel, "Save decoded outputs, and load them when a decode command fails");
+        addGrayLabel(panel, "Save decrypted outputs, and load them when a decrypt command fails");
 
         JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in Extra Settings", true);
         addComponent(panel, saveToLogCheckbox);
         addGrayLabel(panel,
                 "Later you can open the file and easily search for plaintext data. Proxy data will also be logged if the option below is enabled");
 
-        JCheckBox patchProxyCheckbox = new JCheckBox(
-                "Automatically re-encrypt proxy " + (isRequest ? "requests" : "responses"), false);
+        JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy " + (isRequest ? "requests" : "responses"), false);
         addComponent(panel, patchProxyCheckbox);
 
-        if (isRequest) {
-            addGrayLabel(panel,
-                    "One of the main use cases is when the client-side is encrypting using only a public key, so you cannot decrypt.");
-            addGrayLabel(panel,
-                    "However, you can create your own pair of keys, set your public key in the client-side, and then use this option to decrypt using your private key and re-encrypt using the original public key");
-        }
+        addGrayLabel(panel, "Automatically re-encrypt proxy data.");
 
+        // === Populate fields for editing or set defaults for new ===
         if (existingPattern != null) {
-            // If editing an existing pattern, populate the fields with its data
-            regexField.setText(existingPattern.getPatternRegex());
-            scopeField.setText(existingPattern.getURLTargetRegex());
             nameField.setText(existingPattern.getName());
-            encCommand.setText(existingPattern.getEncCommand());
             decCommand.setText(existingPattern.getDecCommand());
+            encCommand.setText(existingPattern.getEncCommand());
             enabledCheckbox.setSelected(existingPattern.isEnabled());
             patchProxyCheckbox.setSelected(existingPattern.shouldPatchProxy());
             cacheCommandsCheckbox.setSelected(existingPattern.shouldUseCacheSystem());
             saveToLogCheckbox.setSelected(existingPattern.shouldSaveToLog());
+
+            // Set pattern type and input from stored values
+            patternTypeCombo.setSelectedItem(existingPattern.getPatternType().getDisplayName());
+            patternInputField.setText(existingPattern.getPatternInput());
+            String urlRegex = existingPattern.getURLTargetRegex();
+            // Parse scope
+            if (existingPattern.usesProjectScope()) {
+                scopeTypeCombo.setSelectedItem("Project In-Scope");
+            } else if (urlRegex == null || urlRegex.isEmpty()) {
+                scopeTypeCombo.setSelectedItem("Any");
+            } else {
+                scopeTypeCombo.setSelectedItem("Custom Scope");
+                scopeInputField.setText(urlRegex);
+                scopeInputPanel.setVisible(true);
+            }
         } else {
-            // If creating a new pattern, set placeholders
-            // setPlaceholder(regexField, "data\":\"(.*?)\"");
-            setPlaceholder(nameField, "UA");
-            setPlaceholder(regexField, "User-Agent: (.*)");
-            setPlaceholder(scopeField, "^http[s]?\\:\\/\\/.*");
-            setPlaceholder(encCommand, "cat {FILE} ");
+            // New pattern - auto-generate name
+            nameField.setText(config.generateUniqueName(isRequest));
             setPlaceholder(decCommand, "cat {FILE} ");
+            setPlaceholder(encCommand, "cat {FILE} ");
+            // Default to Parameter JSON for new patterns
+            patternTypeCombo.setSelectedItem(PatternType.PARAMETER_JSON.getDisplayName());
         }
+
+        // Trigger initial visibility update
+        patternTypeCombo.getActionListeners()[0]
+                .actionPerformed(new ActionEvent(patternTypeCombo, ActionEvent.ACTION_PERFORMED, "init"));
+        scopeTypeCombo.getActionListeners()[0]
+                .actionPerformed(new ActionEvent(scopeTypeCombo, ActionEvent.ACTION_PERFORMED, "init"));
 
         String[] options = { "OK", "Cancel" };
 
@@ -534,22 +655,29 @@ public class SettingsTab {
                 return null; // Cancelled
             }
 
-            String regex = regexField.getText();
+            // Build regex from dropdown selection
+            PatternType selectedPatternType = PatternType.fromDisplayName((String) patternTypeCombo.getSelectedItem());
+            String patternInput = patternInputField.getText();
+            String regex = selectedPatternType.buildRegex(patternInput);
             if (regex == null || regex.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern regex.", "Error",
+                JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern.", "Error",
                         JOptionPane.ERROR_MESSAGE);
-                continue; // Re-show dialog
+                continue;
             }
+
+            // Build scope from dropdown selection
+            String scopeSelection = (String) scopeTypeCombo.getSelectedItem();
+            boolean useProjectScope = "Project In-Scope".equals(scopeSelection);
+            String scopeRegex = "Custom Scope".equals(scopeSelection) ? scopeInputField.getText() : "";
 
             String name = nameField.getText();
             if (name == null || name.isEmpty()) {
-                name = "Pattern " + (config.getPatterns(isRequest).size() + 1);
+                name = config.generateUniqueName(isRequest);
             }
 
             boolean duplicate = false;
             for (CapturePattern p : config.getPatterns(isRequest)) {
                 if (p.getName().equals(name)) {
-                    // If we are editing (existingPattern != null), allow the name to match itself
                     if (existingPattern != null && p == existingPattern) {
                         continue;
                     }
@@ -562,13 +690,12 @@ public class SettingsTab {
                 JOptionPane.showMessageDialog(null,
                         "A pattern with this name already exists.\nPlease choose a unique name.", "Error",
                         JOptionPane.ERROR_MESSAGE);
-                continue; // Re-show dialog
+                continue;
             }
 
-            // Validation passed
-            pattern = new CapturePattern(name, regex, scopeField.getText(), decCommand.getText(), encCommand.getText(),
+            pattern = new CapturePattern(name, regex, scopeRegex, decCommand.getText(), encCommand.getText(),
                     enabledCheckbox.isSelected(), patchProxyCheckbox.isSelected(), cacheCommandsCheckbox.isSelected(),
-                    saveToLogCheckbox.isSelected());
+                    saveToLogCheckbox.isSelected(), useProjectScope, selectedPatternType, patternInput);
             break;
         }
         return pattern;
@@ -580,16 +707,16 @@ public class SettingsTab {
         panel.add(label);
 
         field.setAlignmentX(Component.LEFT_ALIGNMENT);
-        field.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 30));
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         panel.add(field);
 
-        panel.add(javax.swing.Box.createVerticalStrut(5));
+        panel.add(Box.createVerticalStrut(5));
     }
 
     private void addComponent(JPanel panel, JComponent comp) {
         comp.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(comp);
-        panel.add(javax.swing.Box.createVerticalStrut(2));
+        panel.add(Box.createVerticalStrut(2));
     }
 
     private void addGrayLabel(JPanel panel, String text) {
@@ -598,7 +725,7 @@ public class SettingsTab {
         label.setForeground(Color.GRAY);
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(label);
-        panel.add(javax.swing.Box.createVerticalStrut(1));
+        panel.add(Box.createVerticalStrut(1));
     }
 
     private JPanel createSettingsScreen() {
@@ -606,10 +733,52 @@ public class SettingsTab {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
+        createRepeaterSettings(panel);
+        createLogFileSettings(panel);
+        createPrintTabSettings(panel, true);
+        createPrintTabSettings(panel, false);
+        createCacheSettings(panel);
+
+        painelBorderLayout.add(panel, BorderLayout.NORTH);
+
+        return addPanelInternalText("Optionally, adjust extra settings", painelBorderLayout);
+    }
+
+    private void createRepeaterSettings(JPanel panel) {
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("• Repeater");
+        jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        jlabel.setBorder(new EmptyBorder(0, 0, 10, 0));
+        panel.add(jlabel);
+
+        JCheckBox encryptOnModificationCheckbox = new JCheckBox("Encrypt only when the plaintext is modified",
+                config.isRepeaterEncryptOnlyOnModification());
+        encryptOnModificationCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encryptOnModificationCheckbox.addActionListener(e -> {
+            config.setRepeaterEncryptOnlyOnModification(encryptOnModificationCheckbox.isSelected());
+        });
+        panel.add(encryptOnModificationCheckbox);
+
+        JLabel explanation = new JLabel("When disabled, always runs the encrypt command before sending to the server");
+        explanation.setFont(explanation.getFont().deriveFont(11f));
+        explanation.setForeground(Color.GRAY);
+        explanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(explanation);
+    }
+
+    private void createLogFileSettings(JPanel panel) {
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("• Log File");
+        jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
+        panel.add(jlabel);
+
         // File chooser row panel
         JPanel fileChooserPanel = new JPanel(new BorderLayout(5, 0));
         fileChooserPanel.setBorder(new EmptyBorder(5, 0, 5, 5));
-        fileChooserPanel.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 30));
+        fileChooserPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         fileChooserPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel logFileLabel = new JLabel("Log File:");
@@ -640,7 +809,7 @@ public class SettingsTab {
                     try {
                         config.updateLogFilePath(path);
                         logFileField.setText(path);
-                    } catch (java.io.IOException ex) {
+                    } catch (IOException ex) {
                         JOptionPane.showMessageDialog(null, "Failed to update log file path: " + ex.getMessage(),
                                 "Error", JOptionPane.ERROR_MESSAGE);
                     }
@@ -654,26 +823,24 @@ public class SettingsTab {
 
         panel.add(fileChooserPanel);
 
-        createPrintTabSettings(panel, true);
-        createPrintTabSettings(panel, false);
-        createCacheSettings(panel);
-
-        painelBorderLayout.add(panel, BorderLayout.NORTH);
-
-        return addPanelInternalText("Optionally, adjust extra settings", painelBorderLayout);
+        JLabel explanation = new JLabel("To disable logging, uncheck 'Log data' for each pattern");
+        explanation.setFont(explanation.getFont().deriveFont(11f));
+        explanation.setForeground(Color.GRAY);
+        explanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(explanation);
     }
 
     private void createCacheSettings(JPanel panel) {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
-        jlabel.setText("• Cache System for Decoding");
+        jlabel.setText("• Cache System for Decryption");
         jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
         panel.add(jlabel);
 
-        JPanel cachePanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 5, 0));
+        JPanel cachePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         cachePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        cachePanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        cachePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         cachePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel sizeLabel = new JLabel("Cache Size: " + getCacheSizeFormatted());
@@ -701,7 +868,7 @@ public class SettingsTab {
         cachePanel.add(sizeLabel);
         cachePanel.add(clearButton);
         // Add space between buttons
-        cachePanel.add(javax.swing.Box.createHorizontalStrut(5));
+        cachePanel.add(Box.createHorizontalStrut(5));
         cachePanel.add(refreshButton);
 
         panel.add(cachePanel);
@@ -831,9 +998,9 @@ public class SettingsTab {
             textField.setText(placeholder); // Placeholder text
             textField.setForeground(Color.GRAY); // Set placeholder text color
         }
-        textField.addFocusListener(new java.awt.event.FocusAdapter() {
+        textField.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 if (textField.getText().equals(placeholder)) {
                     textField.setText("");
                     textField.setForeground(Color.BLACK); // Reset text color
@@ -841,7 +1008,7 @@ public class SettingsTab {
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 if (textField.getText().isEmpty()) {
                     textField.setText(placeholder);
                     textField.setForeground(Color.GRAY); // Set placeholder text color
@@ -855,10 +1022,18 @@ public class SettingsTab {
         model.setRowCount(0);
         var updatedPatterns = config.getPatterns(isRequest);
         for (var updatedPattern : updatedPatterns) {
+            // Display human-readable scope value
+            String scopeDisplay;
+            if (updatedPattern.usesProjectScope()) {
+                scopeDisplay = "Project In-Scope";
+            } else if (updatedPattern.getURLTargetRegex() == null || updatedPattern.getURLTargetRegex().isEmpty()) {
+                scopeDisplay = "Any";
+            } else {
+                scopeDisplay = updatedPattern.getURLTargetRegex();
+            }
             model.addRow(new Object[] { updatedPattern.isEnabled(), updatedPattern.getName(),
-                    updatedPattern.getPatternRegex(), updatedPattern.getURLTargetRegex(),
-                    updatedPattern.shouldPatchProxy(), updatedPattern.getDecCommand(),
-                    updatedPattern.getEncCommand() });
+                    updatedPattern.getCaptureRegex(), scopeDisplay, updatedPattern.shouldPatchProxy(),
+                    updatedPattern.getDecCommand(), updatedPattern.getEncCommand() });
         }
 
     }

@@ -28,6 +28,8 @@ public class Config implements Serializable {
     // Intruder settings
     boolean enableIntruderResponseDecrypt, enableIntruderRequestEncrypt, enableIntruderPayloadProcessor;
     String intruderEncryptCommand;
+    // Repeater settings
+    boolean repeaterEncryptOnlyOnModification;
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
@@ -54,6 +56,8 @@ public class Config implements Serializable {
         this.enableIntruderRequestEncrypt = getPreference("enableIntruderRequestEncrypt", true);
         this.enableIntruderPayloadProcessor = getPreference("enableIntruderPayloadProcessor", false);
         this.intruderEncryptCommand = getPreference("intruderEncryptCommand", "");
+        // Repeater settings
+        this.repeaterEncryptOnlyOnModification = getPreference("repeaterEncryptOnlyOnModification", true);
     }
 
     public DecryptionCache getDecryptionCache() {
@@ -263,6 +267,16 @@ public class Config implements Serializable {
         this.persisted.setString("intruderEncryptCommand", command);
     }
 
+    // Repeater settings getters and setters
+    public boolean isRepeaterEncryptOnlyOnModification() {
+        return repeaterEncryptOnlyOnModification;
+    }
+
+    public void setRepeaterEncryptOnlyOnModification(boolean enabled) {
+        this.repeaterEncryptOnlyOnModification = enabled;
+        this.persisted.setBoolean("repeaterEncryptOnlyOnModification", enabled);
+    }
+
     public void addPattern(CapturePattern newPattern, boolean isRequest) {
         getPatterns(isRequest).add(newPattern);
         setReloadEditors(isRequest);
@@ -272,10 +286,17 @@ public class Config implements Serializable {
     public void clonePattern(int index, boolean isRequest) {
         CapturePattern pattern = getPatterns(isRequest).get(index);
         CapturePattern newPattern = pattern.clone();
-        newPattern.setName("Pattern " + (getPatterns(isRequest).size() + 1));
+        newPattern.setName(generateUniqueName(isRequest));
         addPattern(newPattern, isRequest);
         setReloadEditors(isRequest);
         savePatterns(isRequest);
+    }
+
+    /**
+     * Generate a unique name for a new pattern like "Pattern N".
+     */
+    public String generateUniqueName(boolean isRequest) {
+        return "Pattern " + (getPatterns(isRequest).size() + 1);
     }
 
     public void editPattern(int index, CapturePattern newPattern, boolean isRequest) {

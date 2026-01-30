@@ -143,10 +143,10 @@ public class RequestResponseTab {
                 if (cachedContentFromIsEnabledFor == null) {
                     cachedContentFromIsEnabledFor = new byte[0];
                 }
-                if (!editor.getPattern().isTarget(cachedURLFromIsEnabledFor)) {
+                if (!editor.getPattern().isTarget(cachedURLFromIsEnabledFor, api)) {
                     continue;
                 }
-                ReEncrypt.searchPattern(editor.getPattern().getPatternRegex(), cachedContentFromIsEnabledFor);
+                ReEncrypt.searchPattern(editor.getPattern().getCaptureRegex(), cachedContentFromIsEnabledFor);
                 tabbedPane.add(editor.getPattern().getName(), editor.uiComponent());
                 atLeastOneTab = true;
             } catch (Exception e) {
@@ -217,8 +217,8 @@ public class RequestResponseTab {
 
         for (var pattern : reEncrypt.getConfig().getActivePatterns(isRequest)) {
             try {
-                if (pattern.isTarget(url)) {
-                    ReEncrypt.searchPattern(pattern.getPatternRegex(), content);
+                if (pattern.isTarget(url, api)) {
+                    ReEncrypt.searchPattern(pattern.getCaptureRegex(), content);
                     return true;
                 }
             } catch (Exception exception) {
@@ -248,7 +248,7 @@ public class RequestResponseTab {
                     commandOutput.getOutputCheckingExitCode();
                 }
                 editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
-                regexes2Highlight.add(editor.getPattern().getPatternRegex());
+                regexes2Highlight.add(editor.getPattern().getCaptureRegex());
                 if (printEditor != null) {
                     if (reEncrypt.getConfig().isEscapingDoubleQuotes(isRequest)) {
                         plainText = plainText.replace("\"", "\\\"");
@@ -257,12 +257,13 @@ public class RequestResponseTab {
                 }
                 // Set per-editor alert based on command result
                 if (commandOutput.isCached()) {
-                    editor.setDecodeAlert("[*] Using CACHED output because decode command failed", ALERT_COLOR_WARNING);
+                    editor.setDecodeAlert("[*] Using CACHED output because decrypt command failed",
+                            ALERT_COLOR_WARNING);
                 } else {
                     editor.setDecodeAlert("", Color.BLACK); // Clear decode alert
                 }
             } catch (CommandException e) {
-                editor.setDecodeAlert("[-] Decode command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
+                editor.setDecodeAlert("[-] Decrypt command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
             } catch (Exception e) {
                 editor.setDecodeAlert("[-] Decode error: " + e.toString(), ALERT_COLOR_ERROR);
             }
@@ -331,15 +332,20 @@ public class RequestResponseTab {
                 patchedRequest = reEncrypt.encryptAndPatch(patchedRequest, editor.getPattern(), plainText, logData);
                 editor.setEncodeAlert("", Color.BLACK); // Clear encode alert
             } catch (CommandException e) {
-                editor.setEncodeAlert("[-] Encode command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
+                editor.setEncodeAlert("[-] Encrypt command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
             } catch (Exception e) {
-                editor.setEncodeAlert("[-] Encode error: " + e.toString(), ALERT_COLOR_ERROR);
+                editor.setEncodeAlert("[-] Encrypt error: " + e.toString(), ALERT_COLOR_ERROR);
             }
         }
         return patchedRequest;
     }
 
     public boolean isModified() {
+        // If "encrypt only on modification" is disabled, always return true to trigger
+        // encryption
+        if (!reEncrypt.getConfig().isRepeaterEncryptOnlyOnModification()) {
+            return true;
+        }
         for (var editor : editors) {
             if (editor.isModified())
                 return true;

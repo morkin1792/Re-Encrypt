@@ -35,8 +35,8 @@ Add regex patterns to capture the data you want to transform.
 
 ### 2. Configure Commands
 Define the shell commands to execute for each pattern.
-* **Decode Command**: Decrypts the captured ciphertext to plaintext.
-* **Encode Command**: Encrypts plaintext back to ciphertext.
+* **Decrypt Command**: Decrypts the captured ciphertext to plaintext.
+* **Encrypt Command**: Encrypts plaintext back to ciphertext.
 
 **Command Placeholders:**
 * `{DATA}`: Replaced by the captured string (e.g., `echo "{DATA}" | base64 -d`).
@@ -49,18 +49,21 @@ python /path/to/script.py --decrypt --file {FILE}
 
 ## 🚀 Usage
 
+### Repeater
+* When a pattern is matched, Re:Encrypt adds a custom tab to Burp Suite.
+* If you open the custom tab, the extension uses the **Decrypt Command** to recover the plaintext, and shows it in the tab. 
+* You can then edit the plaintext directly.
+* When you click in Send, the extension will:
+    1. Encrypts your plaintext using the **Encrypt Command** while updating the request body.
+    2. Send the encrypted request.
+
 ### Proxy
-* Enable **"Automatically re-encrypt proxy"** to have traffic decrypted/encrypted on the fly.
-* Click on the dropdown arrow next to "Original request", or check the Re:Encrypt's log file, to verify transformations:
+* Apart from the custom tab to decrypt data in Proxy, Re:Encrypt also offers a **"Patch proxy"** option to re-encrypt (decrypt + encrypt) traffic on the fly.
+* One of the main use cases for using "Patch proxy" is when the client-side is encrypting using a public key received from the server, so theoretically there is no way to decrypt. However, you still can create your own pair of keys and set a new public key in the client-side. Then, use this option to decrypt requests using your private key, and encrypt them again before sending to the server using the original public key
+* To verify modifications, click on the dropdown arrow next to "Original request", or check the Re:Encrypt's log file
 
 ![](./images/history_arrow.png)
 
-### Repeater
-* When a pattern is matched, Re:Encrypt generates a "Plaintext" view in the message editor.
-* Edit the plaintext directly. When you click **Send**, the extension:
-    1. Encrypts your plaintext using the **Encode Command**.
-    2. Updates the request body.
-    3. Sends the encrypted request.
 
 ### Intruder
 
@@ -96,10 +99,10 @@ This extension originated from an idea by `Jodson`. Development was made possibl
 - ~~monitoring cache size~~
 - ~~again bug on editor focus~~
 - ~~intruder support again (use the HttpHandler to decrypt the message, edit comments through the HttpHandler, intruder tab)~~
+- ~~?pre-defined patterns?~~
 - better UI (layout, buttons) - WIP
 - update README - WIP
 - ?export/import configs
-- ?pre-defined patterns?
 - ?pre defined encryption/scripts?
 - test intercept req and res
 - test on windows
