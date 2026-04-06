@@ -74,7 +74,7 @@ public class SettingsTab {
         JPanel subpanel = new JPanel(new GridLayout(2, 1));
         subpanel.add(createCaptureDataTable("• Request Patterns", true));
         subpanel.add(createCaptureDataTable("• Response Patterns", false));
-        return addPanelInternalText("Set regexs to define what will be re:encrypted / re:encoded", subpanel);
+        return addPanelInternalText("Add patterns to define what will be re:encrypted / re:encoded", subpanel);
     }
 
     private JPanel createIntruderScreen() {
@@ -99,7 +99,7 @@ public class SettingsTab {
 
         // Explanation for decrypt responses
         JLabel decryptExplanation = new JLabel(
-                "Automatically DECRYPT using RESPONSE decrypt commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Responses");
+                "Automatically DECRYPT RESPONSES. It will only affect targets defined in the patterns scope.");
         decryptExplanation.setFont(decryptExplanation.getFont().deriveFont(11f));
         decryptExplanation.setForeground(Color.GRAY);
         decryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -108,14 +108,14 @@ public class SettingsTab {
 
         // Encrypt requests checkbox
         JCheckBox encryptRequestsCheckbox = new JCheckBox(
-                "Auto-encrypt intruder requests (You HAVE to send payloads in PLAINTEXT)");
+                "Auto-encrypt intruder requests (you have to send intruder payloads in PLAINTEXT)");
         encryptRequestsCheckbox.setSelected(config.isIntruderRequestEncryptEnabled());
         encryptRequestsCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(encryptRequestsCheckbox);
 
         // Explanation for encrypt requests
         JLabel encryptExplanation = new JLabel(
-                "Automatically ENCRYPT using REQUEST encrypt commands. Respecting targets defined in each pattern. Also disables Re:Encrypt custom tab for Intruder Requests");
+                "Automatically ENCRYPT REQUESTS. It will only affect targets defined in the patterns scope.");
         encryptExplanation.setFont(encryptExplanation.getFont().deriveFont(11f));
         encryptExplanation.setForeground(Color.GRAY);
         encryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -123,7 +123,7 @@ public class SettingsTab {
         panel.add(encryptExplanation);
 
         JLabel encryptExplanation2 = new JLabel(
-                "If you want to see the ciphertext, use Burp Suite Logger (CTRL+SHIFT+L)");
+                "If you need to see the ciphertext sent to the target, use Burp Suite Logger (CTRL+SHIFT+L)");
         encryptExplanation2.setFont(encryptExplanation2.getFont().deriveFont(11f));
         encryptExplanation2.setForeground(Color.GRAY);
         encryptExplanation2.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -136,10 +136,19 @@ public class SettingsTab {
         payloadProcessorCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(payloadProcessorCheckbox);
 
+        // Explanation for payload processor
+        JLabel payloadExplanation = new JLabel(
+                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to use the command below");
+        payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
+        payloadExplanation.setForeground(Color.GRAY);
+        payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        payloadExplanation.setBorder(new EmptyBorder(0, 24, 0, 0));
+        panel.add(payloadExplanation);
+
         // Encrypt command text field
         JPanel commandPanel = new JPanel(new BorderLayout(5, 0));
         commandPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        commandPanel.setBorder(new EmptyBorder(5, 24, 5, 5));
+        commandPanel.setBorder(new EmptyBorder(0, 24, 5, 5));
         commandPanel.setMaximumSize(new Dimension(800, 45));
 
         JLabel commandLabel = new JLabel("Encrypt Command:");
@@ -150,8 +159,8 @@ public class SettingsTab {
         JTextField commandField = new JTextField(config.getIntruderEncryptCommand());
         commandField.setEnabled(payloadProcessorEnabled);
         commandField.setToolTipText(
-                "Command to use in Intruder Payload Processor. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
-        String commandFieldPlaceholder = "python /tmp/script.js --encrypt --file {FILE}";
+                "Command to use in Intruder Payload Processor. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.   # hello jodson");
+        String commandFieldPlaceholder = "python /tmp/YOUR_SCRIPT.js {FILE} ";
         setPlaceholder(commandField, commandFieldPlaceholder);
         commandField.getDocument().addDocumentListener(new DocumentListener() {
             public void changedUpdate(DocumentEvent e) {
@@ -179,13 +188,13 @@ public class SettingsTab {
         panel.add(commandPanel);
 
         // Explanation for payload processor
-        JLabel payloadExplanation = new JLabel(
-                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to use the command above");
-        payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
-        payloadExplanation.setForeground(Color.GRAY);
-        payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
-        payloadExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
-        panel.add(payloadExplanation);
+        JLabel commandExplanation = new JLabel(
+                "Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data");
+        commandExplanation.setFont(commandExplanation.getFont().deriveFont(11f));
+        commandExplanation.setForeground(Color.GRAY);
+        commandExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        commandExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
+        panel.add(commandExplanation);
 
         // Mutual exclusion logic
         encryptRequestsCheckbox.addActionListener(e -> {
@@ -527,7 +536,7 @@ public class SettingsTab {
             default:
                 patternInputLabel.setText("Capture Regex");
                 patternInputPanel.setVisible(true);
-                regexHintLabel.setText("Case sensitive. Use (.*) or (.*?) to define which part should be captured");
+                regexHintLabel.setText("Case sensitive. Use (.*?) to define which part should be captured");
                 break;
             }
             panel.revalidate();
@@ -542,7 +551,7 @@ public class SettingsTab {
         scopeRow.setLayout(new BoxLayout(scopeRow, BoxLayout.X_AXIS));
         scopeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        String[] scopeTypes = { "Any", "Project In-Scope", "Custom Scope" };
+        String[] scopeTypes = { "Everything", "Project In-Scope", "Custom Scope" };
         JComboBox<String> scopeTypeCombo = new JComboBox<>(scopeTypes);
         scopeTypeCombo.setMaximumSize(new Dimension(200, 30));
         scopeRow.add(scopeTypeCombo);
@@ -558,7 +567,7 @@ public class SettingsTab {
         scopeInputPanel.add(scopeInputLabel);
         scopeInputPanel.add(Box.createHorizontalStrut(5));
         scopeInputPanel.add(scopeInputField);
-        scopeInputPanel.setVisible(false); // Hidden by default ("Any" selected)
+        scopeInputPanel.setVisible(false); // Hidden by default ("Everything" selected)
 
         scopeRow.add(scopeInputPanel);
         panel.add(scopeRow);
@@ -575,18 +584,15 @@ public class SettingsTab {
         decCommand.setToolTipText(
                 "Command to decrypt/decode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
         addLabelAndField(panel, "Decrypt Command", decCommand);
-        addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
+        addGrayLabel(panel, "{FILE} will be replaced by the path of a temporary file containing the captured data");
 
         JTextField encCommand = new JTextField();
         encCommand.setToolTipText(
                 "Command to encrypt/encode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
         addLabelAndField(panel, "Encrypt Command", encCommand);
-        addGrayLabel(panel, "{FILE} will be replaced by a file that has the captured data as content");
+        addGrayLabel(panel, "{FILE} will be replaced by the path of a temporary file containing the captured data");
 
         // === Checkboxes ===
-        JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
-        addComponent(panel, enabledCheckbox);
-
         JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decrypting", true);
         addComponent(panel, cacheCommandsCheckbox);
         addGrayLabel(panel, "Save decrypted outputs, and load them when a decrypt command fails");
@@ -599,7 +605,10 @@ public class SettingsTab {
         JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy " + (isRequest ? "requests" : "responses"), false);
         addComponent(panel, patchProxyCheckbox);
 
-        addGrayLabel(panel, "Automatically re-encrypt proxy data.");
+        addGrayLabel(panel, "Automatically re-encrypt proxy data");
+
+        JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
+        addComponent(panel, enabledCheckbox);
 
         // === Populate fields for editing or set defaults for new ===
         if (existingPattern != null) {
@@ -619,7 +628,7 @@ public class SettingsTab {
             if (existingPattern.usesProjectScope()) {
                 scopeTypeCombo.setSelectedItem("Project In-Scope");
             } else if (urlRegex == null || urlRegex.isEmpty()) {
-                scopeTypeCombo.setSelectedItem("Any");
+                scopeTypeCombo.setSelectedItem("Everything");
             } else {
                 scopeTypeCombo.setSelectedItem("Custom Scope");
                 scopeInputField.setText(urlRegex);
@@ -752,15 +761,15 @@ public class SettingsTab {
         jlabel.setBorder(new EmptyBorder(0, 0, 10, 0));
         panel.add(jlabel);
 
-        JCheckBox encryptOnModificationCheckbox = new JCheckBox("Encrypt only when the plaintext is modified",
-                config.isRepeaterEncryptOnlyOnModification());
+        JCheckBox encryptOnModificationCheckbox = new JCheckBox("Update ciphertext ONLY when a modification is detected in the Repeater plaintext tab");
+        encryptOnModificationCheckbox.setSelected(config.isRepeaterEncryptOnlyOnModification());
         encryptOnModificationCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
         encryptOnModificationCheckbox.addActionListener(e -> {
             config.setRepeaterEncryptOnlyOnModification(encryptOnModificationCheckbox.isSelected());
         });
         panel.add(encryptOnModificationCheckbox);
 
-        JLabel explanation = new JLabel("When disabled, always runs the encrypt command before sending to the server");
+        JLabel explanation = new JLabel("When disabled, it will ALWAYS run encrypt commands, and update the ciphertext before sending Repeater requests");
         explanation.setFont(explanation.getFont().deriveFont(11f));
         explanation.setForeground(Color.GRAY);
         explanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -823,7 +832,7 @@ public class SettingsTab {
 
         panel.add(fileChooserPanel);
 
-        JLabel explanation = new JLabel("To disable logging, uncheck 'Log data' for each pattern");
+        JLabel explanation = new JLabel("If you want to disable logging, keep the 'Log data' option unchecked in all patterns");
         explanation.setFont(explanation.getFont().deriveFont(11f));
         explanation.setForeground(Color.GRAY);
         explanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -833,7 +842,7 @@ public class SettingsTab {
     private void createCacheSettings(JPanel panel) {
         JLabel jlabel = new JLabel();
         jlabel.setFont(hackFont);
-        jlabel.setText("• Cache System for Decryption");
+        jlabel.setText("• Decryption Cache System");
         jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
         panel.add(jlabel);
@@ -843,7 +852,8 @@ public class SettingsTab {
         cachePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         cachePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel sizeLabel = new JLabel("Cache Size: " + getCacheSizeFormatted());
+        String cacheSizeTextPrefix = "Cached data size: ";
+        JLabel sizeLabel = new JLabel(cacheSizeTextPrefix + getCacheSizeFormatted());
         // Add some space after label
         sizeLabel.setBorder(new EmptyBorder(0, 0, 0, 10));
 
@@ -856,13 +866,13 @@ public class SettingsTab {
                     "Clear Cache", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result == JOptionPane.YES_OPTION) {
                 config.getDecryptionCache().clear();
-                sizeLabel.setText("Cache Size: " + getCacheSizeFormatted());
+                sizeLabel.setText(cacheSizeTextPrefix + getCacheSizeFormatted());
                 JOptionPane.showMessageDialog(null, "Cache cleared successfully.");
             }
         });
 
         refreshButton.addActionListener(e -> {
-            sizeLabel.setText("Cache Size: " + getCacheSizeFormatted());
+            sizeLabel.setText(cacheSizeTextPrefix + getCacheSizeFormatted());
         });
 
         cachePanel.add(sizeLabel);
@@ -873,7 +883,7 @@ public class SettingsTab {
 
         panel.add(cachePanel);
 
-        JLabel descriptionLabel = new JLabel("Cache data is stored in the Burp project file.");
+        JLabel descriptionLabel = new JLabel("Cached data is stored in the Burp project file.");
         descriptionLabel.setFont(descriptionLabel.getFont().deriveFont(11f));
         descriptionLabel.setForeground(Color.GRAY);
         descriptionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -994,6 +1004,7 @@ public class SettingsTab {
     }
 
     private void setPlaceholder(JTextField textField, String placeholder) {
+        textField.setDisabledTextColor(Color.GRAY);
         if (textField.getText().isEmpty()) {
             textField.setText(placeholder); // Placeholder text
             textField.setForeground(Color.GRAY); // Set placeholder text color
@@ -1027,7 +1038,7 @@ public class SettingsTab {
             if (updatedPattern.usesProjectScope()) {
                 scopeDisplay = "Project In-Scope";
             } else if (updatedPattern.getURLTargetRegex() == null || updatedPattern.getURLTargetRegex().isEmpty()) {
-                scopeDisplay = "Any";
+                scopeDisplay = "Everything";
             } else {
                 scopeDisplay = updatedPattern.getURLTargetRegex();
             }
