@@ -101,12 +101,15 @@ This extension originated from an idea by `Jodson`. Development was made possibl
 - ~~intruder support again (use the HttpHandler to decrypt the message, edit comments through the HttpHandler, intruder tab)~~
 - ~~?pre-defined patterns?~~
 - better UI (layout, buttons) - WIP
+    * how intuitive is the UI now?
+    * sizes of the panels
+    * https://portswigger.net/bappstore
+- pre defined encryption/scripts
+- websockets support (repeater, automatically patch proxy messages)
+- export/import configs
 - update README - WIP
-- ?export/import configs
-- ?pre defined encryption/scripts?
 - test intercept req and res
 - test on windows
-- websockets support (repeater, automatically patch proxy messages)
 - submit extension to BApp Store
 
 --- 

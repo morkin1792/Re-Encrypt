@@ -41,7 +41,7 @@ public enum PatternType {
         case PARAMETER_JSON:
             return input.isEmpty() ? null : "\"" + input + "\":\"(.*?)\"";
         case WHOLE_BODY:
-            return "\\r\\n\\r\\n(.+)";
+            return "(?s)(?<=\\r\\n\\r\\n)(.+)";
         case CUSTOM_REGEX:
             return input;
         default:
