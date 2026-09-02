@@ -63,6 +63,35 @@ public class Utils {
         }
     }
 
+    /**
+     * Highlight exact character ranges in every text component under {@code component}. Ranges are
+     * clamped to each component's length (so a short sibling like a search box is left untouched).
+     * Used by the print editor to highlight precisely the decrypted regions.
+     */
+    public static void highlightRanges(Component component, java.util.List<int[]> ranges, Color color) {
+        if (component instanceof JTextComponent textComponent) {
+            try {
+                Highlighter highlighter = textComponent.getHighlighter();
+                highlighter.removeAllHighlights();
+                int len = textComponent.getDocument().getLength();
+                for (int[] r : ranges) {
+                    int s = Math.max(0, Math.min(r[0], len));
+                    int e = Math.max(s, Math.min(r[1], len));
+                    if (e > s) {
+                        highlighter.addHighlight(s, e, new DefaultHighlighter.DefaultHighlightPainter(color));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                highlightRanges(child, ranges, color);
+            }
+        }
+    }
+
     public static void highlightTextComponents(Component component, Pattern pattern, Color color) {
         if (component instanceof JTextComponent textComponent) {
             try {

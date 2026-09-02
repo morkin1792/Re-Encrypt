@@ -94,7 +94,7 @@ public class ProxyHandler implements ProxyRequestHandler, ProxyResponseHandler {
             if (!pattern.shouldPatchProxy(url, api))
                 continue;
             try {
-                CommandOutput commandOutput = reEncrypt.searchAndDecrypt(pattern, content, logData);
+                OperationResult commandOutput = reEncrypt.searchAndDecrypt(pattern, content, logData);
 
                 if (commandOutput.isFailed()) {
                     if (commandOutput.isCached()) {

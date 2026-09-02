@@ -13,7 +13,7 @@ public class ShellCommandTest {
         String expected = "test"; // Echo adds newline, ShellCommand should strip it
 
         ShellCommand shellCommand = new ShellCommand(command, "");
-        CommandOutput output = shellCommand.execute();
+        OperationResult output = shellCommand.execute();
 
         assertEquals(0, output.getExitCode());
         assertEquals(expected, output.getOutput());
@@ -29,7 +29,7 @@ public class ShellCommandTest {
         String expected = "test";
 
         ShellCommand shellCommand = new ShellCommand(command, "");
-        CommandOutput output = shellCommand.execute();
+        OperationResult output = shellCommand.execute();
 
         assertEquals(0, output.getExitCode());
         assertEquals(expected, output.getOutput());
@@ -52,7 +52,7 @@ public class ShellCommandTest {
         }
 
         ShellCommand shellCommand = new ShellCommand(command, "");
-        CommandOutput output = shellCommand.execute();
+        OperationResult output = shellCommand.execute();
 
         assertEquals(0, output.getExitCode());
         assertEquals(expected, output.getOutput(), "Should preserve leading/trailing spaces");
@@ -69,9 +69,28 @@ public class ShellCommandTest {
         String command = "printf \"line1\\nline2\\n\"";
 
         ShellCommand shellCommand = new ShellCommand(command, "");
-        CommandOutput output = shellCommand.execute();
+        OperationResult output = shellCommand.execute();
 
         assertEquals("line1\nline2", output.getOutput());
+    }
+
+    @Test
+    void testExecuteRawChecked_PreservesBytesAndTrailingNewline() throws Exception {
+        if (isWindows)
+            return;
+
+        // executeRawChecked must NOT strip the trailing newline and must return raw bytes
+        byte[] out = new ShellCommand("printf 'abc\\n'", "").executeRawChecked();
+        assertArrayEquals(new byte[] { 'a', 'b', 'c', '\n' }, out);
+    }
+
+    @Test
+    void testExecuteRawChecked_ThrowsOnNonZeroExit() {
+        if (isWindows)
+            return;
+
+        assertThrows(reencrypt.exception.CommandException.class,
+                () -> new ShellCommand("exit 3", "").executeRawChecked());
     }
 
     @Test
@@ -85,7 +104,7 @@ public class ShellCommandTest {
         String command = "printf \"test\\n\\n\"";
 
         ShellCommand shellCommand = new ShellCommand(command, "");
-        CommandOutput output = shellCommand.execute();
+        OperationResult output = shellCommand.execute();
 
         assertEquals("test\n", output.getOutput());
     }

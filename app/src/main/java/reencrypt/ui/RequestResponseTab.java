@@ -10,10 +10,11 @@ import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
 import reencrypt.App;
 import reencrypt.CapturePattern;
-import reencrypt.CommandOutput;
+import reencrypt.OperationResult;
 import reencrypt.LogData;
 import reencrypt.ReEncrypt;
 import reencrypt.Utils;
+import reencrypt.engine.CryptoException;
 import reencrypt.exception.CommandException;
 
 import java.awt.Component;
@@ -21,7 +22,6 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
@@ -236,28 +236,54 @@ public class RequestResponseTab {
         this.cachedMethod = method;
         this.cachedUrl = url;
         byte[] printEditorContent = content;
-        ArrayList<String> regexes2Highlight = new ArrayList<>();
+        // Exact byte ranges of each decrypted region in printEditorContent (kept in sync as later
+        // replacements shift earlier ones) — so we highlight what was actually decrypted, with no
+        // regex false positives.
+        ArrayList<int[]> highlightSpans = new ArrayList<>();
         for (var editor : editors) {
             try {
                 LogData logData = new LogData(toolType.toolName(), isRequest, cachedMethod, cachedUrl);
-                CommandOutput commandOutput = reEncrypt.searchAndDecrypt(editor.getPattern(), content, logData);
+                OperationResult commandOutput = reEncrypt.searchAndDecrypt(editor.getPattern(), content, logData);
                 String plainText = commandOutput.getOutput();
 
                 if (commandOutput.isFailed() && !commandOutput.isCached()) {
-                    // if failed and there is no cache, throw CommandException
+                    // Decrypt failed and there is no cached fallback.
+                    //  - Repeater: leave the editor untouched (the user may be mid-edit).
+                    //  - Otherwise: clear the editor so it doesn't show stale/ciphertext content.
+                    if (ToolType.REPEATER != toolType) {
+                        editor.setBytes(httpService, new byte[0]);
+                    }
+                    // surface the failure in the alert area (throws CommandException)
                     commandOutput.getOutputCheckingExitCode();
                 }
                 editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
-                regexes2Highlight.add(editor.getPattern().getCaptureRegex());
                 if (printEditor != null) {
                     if (reEncrypt.getConfig().isEscapingDoubleQuotes(isRequest)) {
                         plainText = plainText.replace("\"", "\\\"");
                     }
-                    printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText);
+                    int[] span = new int[3]; // {newStart, newEnd, oldEnd}
+                    printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText, span);
+                    int delta = span[1] - span[2]; // newEnd - oldEnd
+                    // Shift earlier decrypted regions that sit after this replacement.
+                    for (int[] prev : highlightSpans) {
+                        if (prev[0] >= span[2]) {
+                            prev[0] += delta;
+                            prev[1] += delta;
+                        }
+                    }
+                    highlightSpans.add(new int[] { span[0], span[1] });
                 }
-                // Set per-editor alert based on command result
+                // Set per-editor alert based on command result (never print the garbage itself)
                 if (commandOutput.isCached()) {
-                    editor.setDecodeAlert("[*] Using CACHED output because decrypt command failed",
+                    if (commandOutput.isGarbage()) {
+                        editor.setDecodeAlert("[*] Using CACHED output because the new decryption looked like garbage.",
+                                ALERT_COLOR_WARNING);
+                    } else {
+                        editor.setDecodeAlert("[*] Using CACHED output because decrypt failed:\n"
+                                + commandOutput.getOriginalError(), ALERT_COLOR_WARNING);
+                    }
+                } else if (commandOutput.isGarbage()) {
+                    editor.setDecodeAlert("[*] Output looks like garbage — likely a wrong key/config; not cached.",
                             ALERT_COLOR_WARNING);
                 } else {
                     editor.setDecodeAlert("", Color.BLACK); // Clear decode alert
@@ -269,23 +295,21 @@ public class RequestResponseTab {
             }
         }
 
-        setPrintEditor(httpService, printEditorContent, regexes2Highlight);
+        setPrintEditor(httpService, printEditorContent, highlightSpans);
         if (ToolType.REPEATER == toolType && isRequest) {
             setFocusAndCaret();
         }
     }
 
     private void setPrintEditor(HttpService httpService, byte[] printEditorContent,
-            ArrayList<String> regexes2Highlight) {
+            ArrayList<int[]> highlightSpans) {
         if (printEditor != null) {
             printEditor.setBytes(httpService, printEditorContent);
             Component editorComponent = printEditor.uiComponent();
             boolean isHighlighting = reEncrypt.getConfig().isHighlightingPrintEditor(isRequest);
-            if (isHighlighting && regexes2Highlight.size() > 0) {
-                String regexHighlight = String.join("|", regexes2Highlight);
-                Pattern pattern = Pattern.compile(regexHighlight);
+            if (isHighlighting && !highlightSpans.isEmpty()) {
                 var color = reEncrypt.getConfig().getPrintEditorHighlightColor(isRequest);
-                Utils.highlightTextComponents(editorComponent, pattern, color);
+                Utils.highlightRanges(editorComponent, highlightSpans, color);
             }
         }
     }
@@ -333,6 +357,8 @@ public class RequestResponseTab {
                 editor.setEncodeAlert("", Color.BLACK); // Clear encode alert
             } catch (CommandException e) {
                 editor.setEncodeAlert("[-] Encrypt command failed: " + e.getMessage(), ALERT_COLOR_ERROR);
+            } catch (CryptoException e) {
+                editor.setEncodeAlert("[-] Encrypt failed: " + e.getMessage(), ALERT_COLOR_ERROR);
             } catch (Exception e) {
                 editor.setEncodeAlert("[-] Encrypt error: " + e.toString(), ALERT_COLOR_ERROR);
             }

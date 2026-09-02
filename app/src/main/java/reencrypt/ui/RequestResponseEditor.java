@@ -61,7 +61,9 @@ public class RequestResponseEditor {
         JTextArea area = new JTextArea(0, 0);
         area.setLineWrap(true);
         area.setFont(ALERT_FONT);
-        area.setFocusable(false);
+        // Focusable so the message can be selected/copied (e.g. to share an error),
+        // but not editable so it stays read-only and keeps the same appearance.
+        area.setFocusable(true);
         area.setEditable(false);
         area.setVisible(false);
         return area;

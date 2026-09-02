@@ -1,11 +1,15 @@
 package reencrypt;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.regex.Pattern;
 
 import burp.api.montoya.MontoyaApi;
 
 public class CapturePattern implements Serializable {
+    // Fixed so adding fields later doesn't break deserialization of saved patterns
+    private static final long serialVersionUID = 1L;
+
     boolean enabled, patchProxy, useCacheSystem, saveToLog, useProjectScope;
     String name;
     String captureRegex;
@@ -13,6 +17,11 @@ public class CapturePattern implements Serializable {
     String decCommand, encCommand;
     PatternType patternType;
     String patternInput; // The user input (header name, param name, or custom regex)
+    // Engine fields (null = custom command mode, backward compatible)
+    String engineId; // null | "aes" | "rsa"
+    HashMap<String, String> engineParams;
+    // Skip caching output that looks like a wrong-key result (default on)
+    boolean detectGarbage = true;
 
     public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
             boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog, boolean useProjectScope,
@@ -31,6 +40,16 @@ public class CapturePattern implements Serializable {
         this.patternInput = patternInput;
     }
 
+    // Constructor for engine-based patterns
+    public CapturePattern(String name, String captureRegex, String urlTargetRegex, boolean enabled, boolean patchProxy,
+            boolean useCacheSystem, boolean saveToLog, boolean useProjectScope, PatternType patternType,
+            String patternInput, String engineId, HashMap<String, String> engineParams) {
+        this(name, captureRegex, urlTargetRegex, "", "", enabled, patchProxy, useCacheSystem, saveToLog,
+                useProjectScope, patternType, patternInput);
+        this.engineId = engineId;
+        this.engineParams = engineParams;
+    }
+
     // Legacy constructor for backward compatibility
     public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
             boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog) {
@@ -40,6 +59,10 @@ public class CapturePattern implements Serializable {
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public String getCaptureRegex() {
@@ -84,6 +107,14 @@ public class CapturePattern implements Serializable {
         return useCacheSystem;
     }
 
+    public boolean shouldDetectGarbage() {
+        return detectGarbage;
+    }
+
+    public void setDetectGarbage(boolean detectGarbage) {
+        this.detectGarbage = detectGarbage;
+    }
+
     public boolean shouldSaveToLog() {
         return saveToLog;
     }
@@ -104,8 +135,24 @@ public class CapturePattern implements Serializable {
         return encCommand;
     }
 
+    public boolean usesEngine() {
+        return engineId != null;
+    }
+
+    public String getEngineId() {
+        return engineId;
+    }
+
+    public HashMap<String, String> getEngineParams() {
+        return engineParams;
+    }
+
     public CapturePattern clone() {
-        return new CapturePattern(name, captureRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy,
-                useCacheSystem, saveToLog, useProjectScope, patternType, patternInput);
+        CapturePattern cloned = new CapturePattern(name, captureRegex, urlTargetRegex, decCommand, encCommand, enabled,
+                patchProxy, useCacheSystem, saveToLog, useProjectScope, patternType, patternInput);
+        cloned.engineId = this.engineId;
+        cloned.engineParams = this.engineParams != null ? new HashMap<>(this.engineParams) : null;
+        cloned.detectGarbage = this.detectGarbage;
+        return cloned;
     }
 }
