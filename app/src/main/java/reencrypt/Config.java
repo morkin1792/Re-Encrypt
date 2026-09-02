@@ -17,6 +17,8 @@ public class Config implements Serializable {
     public static final String dataMarker = "{DATA}";
 
     ArrayList<CapturePattern> requestPatterns, responsePatterns;
+    /** Non-fatal problems hit while loading persisted data, reported by App once the API is available. */
+    private final ArrayList<String> loadErrors = new ArrayList<>();
     File logFile;
     BufferedWriter logWriter;
     String logFilePath;
@@ -145,9 +147,17 @@ public class Config implements Serializable {
             String preference = getPreference(key, serialized);
             return Utils.deserialize(preference);
         } catch (Exception e) {
-            System.out.println("Failed to load patterns: " + e);
+            // Don't fail silently: an unreadable blob means the user's saved patterns are gone, and
+            // an empty table with no explanation looks like the extension lost them for no reason.
+            loadErrors.add("Could not load '" + key + "' (" + e.getClass().getSimpleName()
+                    + "). Saved entries were discarded and the list starts empty.");
             return defaultValue;
         }
+    }
+
+    /** Problems hit while loading persisted data. Empty on a clean start. */
+    public ArrayList<String> getLoadErrors() {
+        return loadErrors;
     }
 
     private <T extends Serializable> void updatePreference(String key, ArrayList<T> value) throws IOException {
@@ -296,7 +306,12 @@ public class Config implements Serializable {
      * Generate a unique name for a new pattern like "Pattern N".
      */
     public String generateUniqueName(boolean isRequest) {
-        return "Pattern " + (getPatterns(isRequest).size() + 1);
+        return generateUniqueName("Pattern", isRequest);
+    }
+
+    /** Generate a name like "{base} N" sized to the current pattern list. */
+    public String generateUniqueName(String base, boolean isRequest) {
+        return base + " " + (getPatterns(isRequest).size() + 1);
     }
 
     public void editPattern(int index, CapturePattern newPattern, boolean isRequest) {

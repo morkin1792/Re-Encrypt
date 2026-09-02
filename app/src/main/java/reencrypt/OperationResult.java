@@ -2,19 +2,20 @@ package reencrypt;
 
 import reencrypt.exception.CommandException;
 
-public class CommandOutput {
+public class OperationResult {
     String output, originalError;
     boolean cached;
+    boolean garbage;
     int exitCode;
 
-    public CommandOutput(String output, int exitCode) {
+    public OperationResult(String output, int exitCode) {
         this.output = output;
         this.cached = false;
         this.exitCode = exitCode;
         this.originalError = "";
     }
 
-    public CommandOutput(String output, String originalError) {
+    public OperationResult(String output, String originalError) {
         this.output = output;
         this.cached = true;
         this.exitCode = -1;
@@ -38,6 +39,14 @@ public class CommandOutput {
 
     public boolean isCached() {
         return cached;
+    }
+
+    public boolean isGarbage() {
+        return garbage;
+    }
+
+    public void markGarbage() {
+        this.garbage = true;
     }
 
     public boolean isFailed() {

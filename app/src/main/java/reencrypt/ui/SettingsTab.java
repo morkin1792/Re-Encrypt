@@ -3,15 +3,20 @@ package reencrypt.ui;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
 
+import burp.api.montoya.MontoyaApi;
 import reencrypt.CapturePattern;
 import reencrypt.Config;
 import reencrypt.PatternType;
+import reencrypt.engine.CryptoEngine;
+import reencrypt.engine.CryptoEngineRegistry;
 
 import javax.swing.event.DocumentEvent;
+import javax.swing.event.TableModelEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -23,11 +28,16 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -46,35 +56,716 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.JComboBox;
+import javax.swing.JRadioButton;
+import javax.swing.ButtonGroup;
+import javax.swing.KeyStroke;
+import javax.swing.JSplitPane;
+import javax.swing.JTextArea;
+import javax.swing.BorderFactory;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import reencrypt.analysis.CipherAnalyzer;
+import reencrypt.analysis.Suggestion;
 
 public class SettingsTab {
+    private static final Color ERROR_COLOR = new Color(200, 50, 50);
+    // Exact same color used for the cache-fallback ("Using CACHED output...") info alert
+    private static final Color INFO_COLOR = reencrypt.Utils.hexToColor("#f09e2cff");
     private Font hackFont = new Font("Hack", Font.BOLD, 18);
+    private MontoyaApi api;
     private Config config;
+    // Guards the table's model listener against programmatic rebuilds in updateTable
+    private boolean suppressTableEvents;
+    // Single combined patterns table, kept so the Analyze tab can refresh it
+    private DefaultTableModel patternModel;
+    private JTable patternTable;
+    // Analyze tab wiring (set in createAnalyzeScreen)
+    private JTabbedPane mainTabbedPane;
+    private int analyzeTabIndex = -1;
+    private MarkerEditor analyzeEditor;
+    private JPanel analyzeResultsPanel;
+    private char currentSplitDelimiter; // delimiter of the split currently shown, or '\0'
 
-    public SettingsTab(Config config) {
+    public SettingsTab(MontoyaApi api, Config config) {
+        this.api = api;
         this.config = config;
     }
 
     public Component uiComponent() {
         JTabbedPane tabbedPane = new JTabbedPane();
+        this.mainTabbedPane = tabbedPane;
 
         tabbedPane.add("Capturing + Processing", createCaptureDataScreen());
+
+        Component analyzeScreen = createAnalyzeScreen();
+        tabbedPane.add("Analyze Ciphertext", analyzeScreen);
+        analyzeTabIndex = tabbedPane.indexOfComponent(analyzeScreen);
+
         tabbedPane.add("Intruder Settings", createIntruderScreen());
 
         tabbedPane.add("(TODO) WebSockets ", null);
-        tabbedPane.setEnabledAt(2, false);
+        tabbedPane.setEnabledAt(tabbedPane.getTabCount() - 1, false);
 
         tabbedPane.add("Extra Settings", createSettingsScreen());
 
         return tabbedPane;
     }
 
+    // ===== Analyze Ciphertext tab =====
+
+    private Component createAnalyzeScreen() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        header.setBorder(new EmptyBorder(10, 10, 6, 10));
+        JLabel title = new JLabel("• Identify which Encryption Mode + config to use");
+        title.setFont(hackFont);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        title.setBorder(new EmptyBorder(0, 0, 8, 0));
+        header.add(title);
+        JLabel hint = new JLabel("Paste a ciphertext below, or right-click a request/response (or a selection) "
+                + "in any Burp tool and choose \"Send to Re:Encrypt\".");
+        hint.setFont(hint.getFont().deriveFont(11f));
+        hint.setForeground(Color.GRAY);
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.add(hint);
+        panel.add(header, BorderLayout.NORTH);
+
+        analyzeEditor = new MarkerEditor(config);
+        analyzeEditor.setOnAnalyze(this::runAnalysis);
+
+        analyzeResultsPanel = new JPanel();
+        analyzeResultsPanel.setLayout(new BoxLayout(analyzeResultsPanel, BoxLayout.Y_AXIS));
+        JScrollPane resultsScroll = new JScrollPane(analyzeResultsPanel);
+        resultsScroll.setBorder(BorderFactory.createTitledBorder("Analysis"));
+        // Keep both sides usable: the empty results panel must not collapse to zero width
+        resultsScroll.setMinimumSize(new Dimension(300, 0));
+        analyzeEditor.setMinimumSize(new Dimension(320, 0));
+        analyzeEditor.setBorder(BorderFactory.createTitledBorder("Ciphertext")); // gray contour, like Analysis
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, analyzeEditor, resultsScroll);
+        split.setResizeWeight(0.55);
+        split.setBorder(new EmptyBorder(0, 10, 10, 10));
+        // Set the initial divider once the split actually has a width (ratios are ignored before that)
+        split.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private boolean done;
+
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (!done && split.getWidth() > 0) {
+                    done = true;
+                    split.setDividerLocation(0.55);
+                }
+            }
+        });
+        panel.add(split, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    /** Re-run analysis on the editor's current ciphertext and rebuild the results panel. */
+    private void runAnalysis() {
+        if (analyzeEditor == null || analyzeResultsPanel == null) {
+            return;
+        }
+        String ct = analyzeEditor.getCurrentCiphertext();
+        analyzeResultsPanel.removeAll();
+
+        // Nothing marked → don't analyze the whole text; prompt the user to mark a region
+        if (ct == null || ct.isBlank()) {
+            JLabel hint = new JLabel("Mark the ciphertext with Add or Auto to analyze it.");
+            hint.setForeground(Color.GRAY);
+            hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+            hint.setBorder(new EmptyBorder(6, 6, 6, 6));
+            analyzeResultsPanel.add(hint);
+            analyzeResultsPanel.add(Box.createVerticalGlue());
+            analyzeResultsPanel.revalidate();
+            analyzeResultsPanel.repaint();
+            return;
+        }
+
+        CipherAnalyzer.AnalysisResult result = CipherAnalyzer.analyze(ct);
+        boolean actionable = result.suggestions.stream().anyMatch(Suggestion::isActionable);
+
+        // If a single value yields nothing useful, it may be several ciphertexts concatenated.
+        CipherAnalyzer.SplitResult sr = actionable ? null : CipherAnalyzer.bestSplit(ct);
+        currentSplitDelimiter = (sr != null && sr.parts.size() >= 2) ? sr.delimiter : '\0';
+        if (sr != null && sr.parts.size() >= 2) {
+            JTabbedPane parts = new JTabbedPane();
+            int cipherCount = 0;
+            for (int i = 0; i < sr.parts.size(); i++) {
+                String seg = sr.parts.get(i);
+                CipherAnalyzer.AnalysisResult pr = CipherAnalyzer.analyze(seg);
+                boolean isCipher = pr.suggestions.stream().anyMatch(Suggestion::isActionable);
+                if (isCipher) {
+                    cipherCount++;
+                }
+                JPanel pc = new JPanel();
+                pc.setLayout(new BoxLayout(pc, BoxLayout.Y_AXIS));
+                renderAnalysisInto(pc, seg, pr, i, sr.parts.size(), isCipher);
+                parts.addTab("Part " + (i + 1) + (isCipher ? " ✓" : ""), pc);
+                parts.setToolTipTextAt(i, segmentPreview(seg));
+            }
+
+            String cipherNote = cipherCount == 0 ? "none clearly look like ciphertext"
+                    : cipherCount == 1 ? "1 part looks like ciphertext"
+                            : cipherCount + " parts look like ciphertext";
+            JTextArea note = new JTextArea("This value splits into " + sr.parts.size() + " parts ("
+                    + sr.reason + "); " + cipherNote + ". Analyzing each part below.");
+            note.setEditable(false);
+            note.setLineWrap(true);
+            note.setWrapStyleWord(true);
+            note.setOpaque(false);
+            note.setBorder(new EmptyBorder(6, 6, 2, 6));
+            note.setForeground(Color.GRAY);
+            note.setFont(note.getFont().deriveFont(11f));
+
+            // BorderLayout keeps the note at its natural height (no vertical stretch) above the tabs
+            JPanel multi = new JPanel(new BorderLayout(0, 2));
+            multi.setAlignmentX(Component.LEFT_ALIGNMENT);
+            multi.add(note, BorderLayout.NORTH);
+            multi.add(parts, BorderLayout.CENTER);
+            analyzeResultsPanel.add(multi);
+        } else {
+            renderAnalysisInto(analyzeResultsPanel, ct, result, -1, 0, false);
+        }
+
+        analyzeResultsPanel.revalidate();
+        analyzeResultsPanel.repaint();
+    }
+
+    /**
+     * Render the analysis of {@code ct} into {@code container}; partTotal &gt; 1 marks one segment
+     * of a split value. Layout: the header (part info + summary) takes only the height it needs
+     * at the top; the guesses share the remaining height equally; the AI button sits at the
+     * bottom.
+     */
+    private void renderAnalysisInto(JPanel container, String ct, CipherAnalyzer.AnalysisResult result,
+            int partIndex, int partTotal, boolean isCiphertext) {
+        JPanel body = new JPanel(new BorderLayout(0, 4));
+        body.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // NORTH: header (only as tall as it needs to be)
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        if (partTotal > 1 && ct != null) {
+            String shown = ct.length() > 140 ? ct.substring(0, 140) + "… (" + ct.length() + " chars)" : ct;
+            String tag = isCiphertext ? "ciphertext" : "not detected as ciphertext";
+            JTextArea seg = new JTextArea(
+                    "Part " + (partIndex + 1) + " of " + partTotal + " — " + tag + ":  " + shown);
+            seg.setEditable(false);
+            seg.setFocusable(false);
+            seg.setLineWrap(true);
+            seg.setWrapStyleWord(false);
+            seg.setOpaque(false);
+            seg.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            seg.setForeground(new Color(110, 110, 110));
+            seg.setBorder(new EmptyBorder(6, 6, 4, 6));
+            seg.setAlignmentX(Component.LEFT_ALIGNMENT);
+            top.add(seg);
+        }
+        JLabel summary = new JLabel(String.format("Encoding: %s  ·  length: %d  ·  decoded: %s",
+                result.outerEncoding, result.rawLength,
+                result.decodedLength < 0 ? "n/a" : String.valueOf(result.decodedLength)));
+        summary.setFont(summary.getFont().deriveFont(11f));
+        summary.setForeground(Color.GRAY);
+        summary.setAlignmentX(Component.LEFT_ALIGNMENT);
+        summary.setBorder(new EmptyBorder(6, 6, 6, 6));
+        top.add(summary);
+        body.add(top, BorderLayout.NORTH);
+
+        // CENTER: the guesses, sharing the remaining height equally
+        if (result.suggestions.isEmpty()) {
+            JLabel none = new JLabel("No confident match — try selecting a different region, or Copy AI prompt.");
+            none.setForeground(Color.GRAY);
+            none.setBorder(new EmptyBorder(0, 6, 6, 6));
+            body.add(none, BorderLayout.CENTER);
+        } else {
+            JPanel cards = new JPanel(new GridLayout(0, 1, 0, 6));
+            for (Suggestion s : result.suggestions) {
+                cards.add(buildSuggestionCard(s, partIndex, partTotal));
+            }
+            body.add(cards, BorderLayout.CENTER);
+        }
+
+        // SOUTH: AI prompt
+        JPanel aiRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton copyPrompt = new JButton("Copy AI prompt");
+        copyPrompt.setToolTipText("Copy a ready-made analysis prompt to paste into any external LLM");
+        copyPrompt.addActionListener(e -> {
+            String prompt = CipherAnalyzer.buildAiPrompt(ct, result);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(prompt), null);
+            copyPrompt.setText("Copied!");
+            Timer t = new Timer(1200, ev -> copyPrompt.setText("Copy AI prompt"));
+            t.setRepeats(false);
+            t.start();
+        });
+        aiRow.add(copyPrompt);
+        body.add(aiRow, BorderLayout.SOUTH);
+
+        container.add(body);
+    }
+
+    private JComponent buildSuggestionCard(Suggestion s, int partIndex, int partTotal) {
+        JPanel card = new JPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.setBorder(BorderFactory.createTitledBorder(s.getTitle() + "  (" + s.getConfidence() + "%)"));
+
+        JTextArea expl = new JTextArea(s.getExplanation());
+        expl.setEditable(false);
+        expl.setLineWrap(true);
+        expl.setWrapStyleWord(true);
+        expl.setOpaque(false);
+        expl.setBorder(null);
+        expl.setFocusable(true); // allow the user to select & copy the text
+        expl.setFont(UIManager.getFont("Label.font"));
+        expl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(expl);
+
+        if (s.isActionable()) {
+            card.add(Box.createVerticalStrut(4));
+            JButton create = new JButton("Create pattern");
+            create.setAlignmentX(Component.LEFT_ALIGNMENT);
+            create.addActionListener(e -> createPatternFromSuggestion(s, partIndex, partTotal));
+            card.add(create);
+        }
+        return card;
+    }
+
+    /** A compact one-line preview of a segment, used as the Part tab tooltip. */
+    private static String segmentPreview(String s) {
+        if (s == null) {
+            return "";
+        }
+        String one = s.replaceAll("\\s+", "");
+        return one.length() > 90 ? one.substring(0, 90) + "… (" + one.length() + " chars)" : one;
+    }
+
+    private void createPatternFromSuggestion(Suggestion s, int partIndex, int partTotal) {
+        if (!s.isActionable()) {
+            return;
+        }
+        // Default the location to whatever the editor is showing; seed a Custom Regex from the selection.
+        boolean isRequest = analyzeEditor == null || !analyzeEditor.isShowingResponse();
+        String seedRegex = null;
+        if (analyzeEditor != null) {
+            seedRegex = partTotal > 1
+                    ? analyzeEditor.getCaptureRegexForPart(partIndex, partTotal, currentSplitDelimiter)
+                    : analyzeEditor.getCaptureRegex();
+        }
+        String seedName = config.generateUniqueName("Analyzed pattern", isRequest);
+        PatternResult r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(), seedRegex,
+                seedName);
+        if (r != null) {
+            config.addPattern(r.pattern, r.isRequest);
+            reloadPatternTable();
+        }
+    }
+
+    private void selectAnalyzeTab() {
+        bringSuiteTabToFront();
+        if (mainTabbedPane != null && analyzeTabIndex >= 0) {
+            mainTabbedPane.setSelectedIndex(analyzeTabIndex);
+        }
+    }
+
+    /**
+     * Bring the Re-Encrypt suite tab to the front in Burp's main window by walking up the
+     * Swing hierarchy and selecting our component in every enclosing tabbed pane. (Montoya
+     * has no API to select a suite tab, so this is a best-effort UI traversal.)
+     */
+    private void bringSuiteTabToFront() {
+        if (mainTabbedPane == null) {
+            return;
+        }
+        Component child = mainTabbedPane;
+        Container parent = child.getParent();
+        while (parent != null) {
+            if (parent instanceof JTabbedPane) {
+                JTabbedPane tp = (JTabbedPane) parent;
+                if (tp.indexOfComponent(child) >= 0) {
+                    tp.setSelectedComponent(child);
+                }
+            }
+            child = parent;
+            parent = parent.getParent();
+        }
+    }
+
+    /** Entry point used by the context-menu provider for a sent request (+ optional response). */
+    public void analyzeRequestResponse(String requestText, boolean hasResponse, String responseText) {
+        SwingUtilities.invokeLater(() -> {
+            selectAnalyzeTab();
+            if (analyzeEditor != null) {
+                analyzeEditor.setContent(requestText, hasResponse, responseText);
+            }
+        });
+    }
+
+    /** Entry point for a pasted/selected ciphertext string. */
+    public void analyzePasted(String text) {
+        SwingUtilities.invokeLater(() -> {
+            selectAnalyzeTab();
+            if (analyzeEditor != null) {
+                analyzeEditor.setPastedContent(text);
+            }
+        });
+    }
+
     private JPanel createCaptureDataScreen() {
-        JPanel subpanel = new JPanel(new GridLayout(2, 1));
-        subpanel.add(createCaptureDataTable("• Request Patterns", true));
-        subpanel.add(createCaptureDataTable("• Response Patterns", false));
-        return addPanelInternalText("Add patterns to define what will be re:encrypted / re:encoded", subpanel);
+        return addPanelInternalText("Add patterns to define what will be re:encrypted / re:encoded",
+                createCombinedPatternTable());
+    }
+
+    private static class PatternResult {
+        final CapturePattern pattern;
+        final boolean isRequest;
+
+        PatternResult(CapturePattern pattern, boolean isRequest) {
+            this.pattern = pattern;
+            this.isRequest = isRequest;
+        }
+    }
+
+    private boolean rowIsRequest(int row) {
+        return row < config.getPatterns(true).size();
+    }
+
+    private int rowListIndex(int row) {
+        int reqCount = config.getPatterns(true).size();
+        return row < reqCount ? row : row - reqCount;
+    }
+
+    /** Reload both request and response patterns into the single combined table. */
+    private void reloadPatternTable() {
+        if (patternModel == null) {
+            return;
+        }
+        suppressTableEvents = true;
+        try {
+            patternModel.setRowCount(0);
+            appendPatternRows(true);
+            appendPatternRows(false);
+        } finally {
+            suppressTableEvents = false;
+        }
+    }
+
+    private void appendPatternRows(boolean isRequest) {
+        String location = isRequest ? "Request" : "Response";
+        for (CapturePattern p : config.getPatterns(isRequest)) {
+            patternModel.addRow(new Object[] { p.isEnabled(), p.getName(), location, p.getCaptureRegex(),
+                    scopeDisplay(p), p.shouldPatchProxy() ? "Yes" : "No", configDisplay(p) });
+        }
+    }
+
+    private String scopeDisplay(CapturePattern p) {
+        if (p.usesProjectScope()) {
+            return "Project In-Scope";
+        }
+        String u = p.getURLTargetRegex();
+        if (u == null || u.isEmpty()) {
+            return "Everything";
+        }
+        return u;
+    }
+
+    /** Single "Configuration" column: engine details (or both custom commands), with a warning prefix
+     *  when something required is missing (empty commands, missing key/iv/public/private, ...). */
+    private String configDisplay(CapturePattern p) {
+        String base;
+        String warn = null;
+        if (p.usesEngine()) {
+            CryptoEngine engine = CryptoEngineRegistry.get(p.getEngineId());
+            String engineName = engine != null ? engine.getDisplayName() : p.getEngineId();
+            HashMap<String, String> ep = p.getEngineParams();
+            StringBuilder d = new StringBuilder("[").append(engineName).append("] ");
+            if (ep != null && "aes".equals(p.getEngineId())) {
+                String mode = ep.getOrDefault("mode", "");
+                if (!mode.isEmpty()) {
+                    d.append(mode);
+                }
+                String padding = ep.getOrDefault("padding", "");
+                if (!padding.isEmpty() && ("CBC".equals(mode) || "ECB".equals(mode))) {
+                    d.append("/").append(padding.replace("Padding", ""));
+                }
+                switch (ep.getOrDefault("ciphertextStructure", "raw")) {
+                case "iv_ct": d.append(" (IV+CT)"); break;
+                case "iv_ct_tag": d.append(" (IV+CT+Tag)"); break;
+                case "openssl": d.append(" (OpenSSL)"); break;
+                case "jwe": d.append(" (JWE)"); break;
+                default: break;
+                }
+            } else if (ep != null && "rsa".equals(p.getEngineId())) {
+                d.append(ep.getOrDefault("encryptionScheme", "PKCS1"));
+            }
+            base = d.toString();
+            warn = warningFor(true, engine, ep, null, null);
+        } else {
+            String dec = p.getDecCommand() == null ? "" : p.getDecCommand();
+            String enc = p.getEncCommand() == null ? "" : p.getEncCommand();
+            base = dec.equals(enc) ? dec : "decrypt: " + dec + "    encrypt: " + enc;
+            warn = warningFor(false, null, null, dec, enc);
+        }
+        return warn != null ? "⚠ " + warn + "  ·  " + base : base;
+    }
+
+    /**
+     * The configuration warning for a pattern (missing key/IV/public/private key for engines, or
+     * empty decrypt/encrypt commands for Custom Command), or {@code null} when nothing is wrong.
+     * Shared by the Configuration column and the Add/Edit Pattern dialog so the wording matches.
+     */
+    private static String warningFor(boolean usesEngine, CryptoEngine engine, HashMap<String, String> ep, String dec,
+            String enc) {
+        if (usesEngine) {
+            return engine != null ? engine.validate(ep) : "unknown engine";
+        }
+        boolean db = dec == null || dec.isBlank();
+        boolean eb = enc == null || enc.isBlank();
+        if (db && eb) {
+            return "decrypt/encrypt commands are empty";
+        }
+        if (db) {
+            return "decrypt command is empty";
+        }
+        if (eb) {
+            return "encrypt command is empty";
+        }
+        return null;
+    }
+
+    private static String capitalize(String s) {
+        return (s == null || s.isEmpty()) ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private JPanel createCombinedPatternTable() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        Object[] columns = { "Enabled", "Name", "Location", "Capture Regex", "Target", "Patch Proxy",
+                "Configuration" };
+        DefaultTableModel model = new DefaultTableModel(null, columns) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if ("Enabled".equals(getColumnName(columnIndex))) {
+                    return Boolean.class;
+                }
+                return super.getColumnClass(columnIndex);
+            };
+
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return "Enabled".equals(getColumnName(col));
+            }
+        };
+        this.patternModel = model;
+        JTable table = new JTable(model);
+        this.patternTable = table;
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.setFillsViewportHeight(true);
+        reloadPatternTable();
+
+        // Clicking the "Enabled" checkbox toggles the pattern on/off and persists it
+        model.addTableModelListener(e -> {
+            if (suppressTableEvents) {
+                return;
+            }
+            if (e.getType() == TableModelEvent.UPDATE && e.getColumn() >= 0
+                    && "Enabled".equals(model.getColumnName(e.getColumn()))) {
+                int row = e.getFirstRow();
+                if (row < 0 || row >= model.getRowCount()) {
+                    return;
+                }
+                boolean isReq = rowIsRequest(row);
+                int idx = rowListIndex(row);
+                var patterns = config.getPatterns(isReq);
+                if (idx < 0 || idx >= patterns.size()) {
+                    return;
+                }
+                boolean enabled = Boolean.TRUE.equals(model.getValueAt(row, e.getColumn()));
+                CapturePattern toggled = patterns.get(idx);
+                toggled.setEnabled(enabled);
+                config.editPattern(idx, toggled, isReq);
+            }
+        });
+
+        ActionListener addAction = e -> {
+            PatternResult r = createOrEditPatternPopup(true);
+            if (r == null) {
+                return;
+            }
+            config.addPattern(r.pattern, r.isRequest);
+            reloadPatternTable();
+        };
+
+        ActionListener editAction = e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            boolean wasRequest = rowIsRequest(row);
+            int idx = rowListIndex(row);
+            CapturePattern existing = config.getPatterns(wasRequest).get(idx);
+            PatternResult r = createOrEditPatternPopup(existing, wasRequest);
+            if (r == null) {
+                return;
+            }
+            if (r.isRequest == wasRequest) {
+                config.editPattern(idx, r.pattern, wasRequest);
+            } else {
+                config.removePattern(idx, wasRequest);
+                config.addPattern(r.pattern, r.isRequest);
+            }
+            reloadPatternTable();
+        };
+
+        ActionListener cloneAction = e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            config.clonePattern(rowListIndex(row), rowIsRequest(row));
+            reloadPatternTable();
+        };
+
+        ActionListener removeAction = e -> {
+            int[] rows = table.getSelectedRows();
+            List<Integer> reqIdx = new ArrayList<>();
+            List<Integer> respIdx = new ArrayList<>();
+            for (int row : rows) {
+                if (rowIsRequest(row)) {
+                    reqIdx.add(rowListIndex(row));
+                } else {
+                    respIdx.add(rowListIndex(row));
+                }
+            }
+            reqIdx.sort(Collections.reverseOrder());
+            respIdx.sort(Collections.reverseOrder());
+            for (int i : reqIdx) {
+                config.removePattern(i, true);
+            }
+            for (int i : respIdx) {
+                config.removePattern(i, false);
+            }
+            reloadPatternTable();
+        };
+
+        ActionListener upAction = e -> moveSelected(table, -1);
+        ActionListener downAction = e -> moveSelected(table, 1);
+
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && !e.isConsumed()) {
+                    e.consume();
+                    if (table.getSelectedRow() != -1) {
+                        editAction.actionPerformed(new ActionEvent(e.getSource(), ActionEvent.ACTION_PERFORMED, "edit"));
+                    }
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                checkPopup(e);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                checkPopup(e);
+            }
+
+            private void checkPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int r = table.rowAtPoint(e.getPoint());
+                    if (r != -1 && !table.isRowSelected(r)) {
+                        table.setRowSelectionInterval(r, r);
+                    }
+                    JPopupMenu popup = new JPopupMenu();
+                    if (r != -1) {
+                        addMenuItem(popup, "Edit", editAction);
+                        addMenuItem(popup, "Clone", cloneAction);
+                        addMenuItem(popup, "Remove", removeAction);
+                        popup.addSeparator();
+                        addMenuItem(popup, "Up", upAction);
+                        addMenuItem(popup, "Down", downAction);
+                    } else {
+                        addMenuItem(popup, "Add", addAction);
+                    }
+                    popup.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+
+        TableColumnModel cm = table.getColumnModel();
+        cm.getColumn(0).setPreferredWidth(60); // Enabled
+        cm.getColumn(1).setPreferredWidth(110); // Name
+        cm.getColumn(2).setPreferredWidth(80); // Location
+        cm.getColumn(3).setPreferredWidth(170); // Capture Regex
+        cm.getColumn(4).setPreferredWidth(150); // Target
+        cm.getColumn(5).setPreferredWidth(80); // Patch Proxy
+        cm.getColumn(6).setPreferredWidth(600); // Configuration
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JButton addButton = new JButton("Add");
+        addButton.addActionListener(addAction);
+        JButton editButton = new JButton("Edit");
+        editButton.addActionListener(editAction);
+        JButton cloneButton = new JButton("Clone");
+        cloneButton.addActionListener(cloneAction);
+        JButton removeButton = new JButton("Remove");
+        removeButton.addActionListener(removeAction);
+        JButton upButton = new JButton("Up");
+        upButton.addActionListener(upAction);
+        JButton downButton = new JButton("Down");
+        downButton.addActionListener(downAction);
+
+        JPanel buttonPanel = new JPanel(new GridLayout(6, 1, 0, 5));
+        buttonPanel.add(addButton);
+        buttonPanel.add(cloneButton);
+        buttonPanel.add(editButton);
+        buttonPanel.add(removeButton);
+        buttonPanel.add(upButton);
+        buttonPanel.add(downButton);
+        buttonPanel.setBorder(new EmptyBorder(1, 5, 1, 1));
+
+        JPanel buttonWrapper = new JPanel(new BorderLayout());
+        buttonWrapper.add(buttonPanel, BorderLayout.NORTH);
+        panel.add(buttonWrapper, BorderLayout.EAST);
+
+        return panel;
+    }
+
+    private void addMenuItem(JPopupMenu popup, String label, ActionListener action) {
+        JMenuItem item = new JMenuItem(label);
+        item.addActionListener(action);
+        popup.add(item);
+    }
+
+    /** Move the single selected pattern up/down within its own (request/response) list. */
+    private void moveSelected(JTable table, int delta) {
+        int row = table.getSelectedRow();
+        if (row < 0) {
+            return;
+        }
+        boolean isReq = rowIsRequest(row);
+        int idx = rowListIndex(row);
+        int target = idx + delta;
+        if (target < 0 || target >= config.getPatterns(isReq).size()) {
+            return;
+        }
+        config.movePattern(idx, target, isReq);
+        reloadPatternTable();
+        int newRow = isReq ? target : config.getPatterns(true).size() + target;
+        table.setRowSelectionInterval(newRow, newRow);
     }
 
     private JPanel createIntruderScreen() {
@@ -222,249 +913,25 @@ public class SettingsTab {
         return addPanelInternalText("Optionally, adjust intruder-specific settings", mainPanel);
     }
 
-    private JPanel createCaptureDataTable(String title, boolean isRequest) {
 
-        JPanel panel = new JPanel(new BorderLayout());
-        JLabel jlabel = new JLabel();
-        jlabel.setFont(hackFont);
-        jlabel.setText(title);
-        jlabel.setBorder(new EmptyBorder(isRequest ? 0 : 20, 0, 5, 0));
-        panel.add(jlabel, BorderLayout.NORTH);
-
-        Object[] tableColumnName = new Object[] { "Enabled", "Name", "Capture Regex", "Target", "Patch Proxy",
-                "Decrypt Command", "Encrypt Command" };
-
-        // Creating tables
-        DefaultTableModel model = new DefaultTableModel(null, tableColumnName) {
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                switch (getColumnName(columnIndex)) {
-                case "Enabled":
-                    return Boolean.class;
-                case "Patch Proxy":
-                    return Boolean.class;
-                }
-                return super.getColumnClass(columnIndex);
-            };
-
-            @Override
-            public boolean isCellEditable(int row, int col) {
-                return false;
-            }
-        };
-        // Loading saved patterns
-        updateTable(model, config, isRequest);
-        JTable table = new JTable(model);
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        table.setFillsViewportHeight(true);
-
-        // Defined actions
-        ActionListener addAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                var newPattern = createOrEditPatternPopup(isRequest);
-                if (newPattern == null) {
-                    return; // User cancelled the dialog
-                }
-                config.addPattern(newPattern, isRequest);
-                updateTable(model, config, isRequest);
-            }
-        };
-
-        ActionListener editAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = table.getSelectedRow();
-                if (index != -1) {
-                    var modifiedPattern = createOrEditPatternPopup(config.getPatterns(isRequest).get(index), isRequest);
-                    if (modifiedPattern == null) {
-                        return; // User cancelled the dialog
-                    }
-                    config.editPattern(index, modifiedPattern, isRequest);
-                    updateTable(model, config, isRequest);
-                }
-            }
-        };
-
-        ActionListener cloneAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int index = table.getSelectedRow();
-                if (index != -1) {
-                    config.clonePattern(index, isRequest);
-                    updateTable(model, config, isRequest);
-
-                    int wishedIndex = index + 1;
-                    int currentIndex = model.getRowCount() - 1;
-                    while (currentIndex > wishedIndex) {
-                        config.movePattern(currentIndex, currentIndex - 1, isRequest);
-                        int newRow = moveRow(model, currentIndex, currentIndex - 1);
-                        table.addRowSelectionInterval(newRow, newRow);
-                        currentIndex--;
-                    }
-                }
-            }
-        };
-
-        ActionListener removeAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int[] selectedRows = table.getSelectedRows();
-                Arrays.sort(selectedRows);
-                for (int auxIndex = selectedRows.length - 1; auxIndex >= 0; auxIndex--) {
-                    int selectedRowIndex = selectedRows[auxIndex];
-                    config.removePattern(selectedRowIndex, isRequest);
-                }
-                updateTable(model, config, isRequest);
-            }
-        };
-
-        ActionListener upAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int[] selectedRows = table.getSelectedRows();
-                Arrays.sort(selectedRows);
-                for (int selectedRow : selectedRows) {
-                    config.movePattern(selectedRow, selectedRow - 1, isRequest);
-                    int newRow = moveRow(model, selectedRow, selectedRow - 1);
-                    table.addRowSelectionInterval(newRow, newRow);
-                }
-            }
-        };
-
-        ActionListener downAction = new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int[] selectedRows = table.getSelectedRows();
-                Arrays.sort(selectedRows);
-                for (int auxIndex = selectedRows.length - 1; auxIndex >= 0; auxIndex--) {
-                    int selectedRow = selectedRows[auxIndex];
-                    config.movePattern(selectedRow, selectedRow + 1, isRequest);
-                    int newRow = moveRow(model, selectedRow, selectedRow + 1);
-                    table.addRowSelectionInterval(newRow, newRow);
-                }
-            }
-        };
-
-        table.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2 && !e.isConsumed()) {
-                    e.consume();
-                    int index = table.getSelectedRow();
-                    if (index != -1) {
-                        editAction
-                                .actionPerformed(new ActionEvent(e.getSource(), ActionEvent.ACTION_PERFORMED, "edit"));
-                    }
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                checkPopup(e);
-            }
-
-            @Override
-            public void mousePressed(MouseEvent e) {
-                checkPopup(e);
-            }
-
-            private void checkPopup(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    int r = table.rowAtPoint(e.getPoint());
-                    if (r != -1 && !table.isRowSelected(r)) {
-                        table.setRowSelectionInterval(r, r);
-                    }
-
-                    JPopupMenu popup = new JPopupMenu();
-
-                    if (r != -1) {
-                        JMenuItem editItem = new JMenuItem("Edit");
-                        editItem.addActionListener(editAction);
-                        popup.add(editItem);
-
-                        JMenuItem cloneItem = new JMenuItem("Clone");
-                        cloneItem.addActionListener(cloneAction);
-                        popup.add(cloneItem);
-
-                        JMenuItem removeItem = new JMenuItem("Remove");
-                        removeItem.addActionListener(removeAction);
-                        popup.add(removeItem);
-
-                        popup.addSeparator();
-
-                        JMenuItem upItem = new JMenuItem("Up");
-                        upItem.addActionListener(upAction);
-                        popup.add(upItem);
-
-                        JMenuItem downItem = new JMenuItem("Down");
-                        downItem.addActionListener(downAction);
-                        popup.add(downItem);
-                    } else {
-                        JMenuItem addItem = new JMenuItem("Add");
-                        addItem.addActionListener(addAction);
-                        popup.add(addItem);
-                    }
-                    popup.show(e.getComponent(), e.getX(), e.getY());
-                }
-            }
-        });
-        TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(70); // "Enabled"
-        columnModel.getColumn(1).setPreferredWidth(100); // "Name"
-        columnModel.getColumn(2).setPreferredWidth(150); // "Capture Regex"
-        columnModel.getColumn(3).setPreferredWidth(150); // "Target"
-        columnModel.getColumn(4).setPreferredWidth(100); // "Patch Proxy"
-        columnModel.getColumn(5).setPreferredWidth(500); // "Decrypt Command"
-        columnModel.getColumn(6).setPreferredWidth(500); // "Encrypt Command"
-
-        JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        panel.add(scrollPane);
-
-        // Adding buttons
-
-        // Adding buttons
-        JButton addButton = new JButton("Add");
-        addButton.addActionListener(addAction);
-
-        JButton editButton = new JButton("Edit");
-        editButton.addActionListener(editAction);
-
-        JButton cloneButton = new JButton("Clone");
-        cloneButton.addActionListener(cloneAction);
-
-        JButton removeButton = new JButton("Remove");
-        removeButton.addActionListener(removeAction);
-
-        JButton upButton = new JButton("Up");
-        upButton.addActionListener(upAction);
-
-        JButton downButton = new JButton("Down");
-        downButton.addActionListener(downAction);
-
-        JPanel buttonPanel = new JPanel(new GridLayout(6, 1, 0, 5));
-        buttonPanel.add(addButton);
-        buttonPanel.add(cloneButton);
-        buttonPanel.add(editButton);
-        buttonPanel.add(removeButton);
-        buttonPanel.add(upButton);
-        buttonPanel.add(downButton);
-        buttonPanel.setBorder(new EmptyBorder(1, 5, 1, 1));
-
-        JPanel buttonWrapper = new JPanel(new BorderLayout());
-        buttonWrapper.add(buttonPanel, BorderLayout.NORTH);
-        panel.add(buttonWrapper, BorderLayout.EAST);
-
-        return panel;
+    private PatternResult createOrEditPatternPopup(boolean isRequest) {
+        return createOrEditPatternPopup(null, isRequest, null, null, null, null);
     }
 
-    private CapturePattern createOrEditPatternPopup(boolean isRequest) {
-        return createOrEditPatternPopup(null, isRequest);
+    private PatternResult createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
+        return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null);
     }
 
-    private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
+    /**
+     * @param seedEngineId     when non-null (and existingPattern is null), pre-selects this
+     *                         engine and seeds its params for a NEW pattern
+     * @param seedEngineParams engine params to seed
+     * @param seedCaptureRegex when non-null (new pattern), sets Custom Regex + this value
+     * @param seedName         when non-null (new pattern), the default pattern name
+     * @return the built pattern + chosen location, or null if cancelled
+     */
+    private PatternResult createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest,
+            String seedEngineId, HashMap<String, String> seedEngineParams, String seedCaptureRegex, String seedName) {
         CapturePattern pattern = null;
 
         JPanel panel = new JPanel();
@@ -473,12 +940,28 @@ public class SettingsTab {
         // === Tab Name ===
         JTextField nameField = new JTextField();
         nameField.setToolTipText("Enter a name for the pattern.");
-        addLabelAndField(panel, "Tab Name", nameField);
+        addLabelAndField(panel, "Give a name:", nameField);
 
         // === Capture Pattern Section (horizontal layout) ===
-        JLabel patternLabel = new JLabel("Capture Pattern");
+        JLabel patternLabel = new JLabel("What will be captured?");
         patternLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(patternLabel);
+
+        // Location (Request / Response) — right under the question, before the type dropdown
+        JPanel locationRow = new JPanel();
+        locationRow.setLayout(new BoxLayout(locationRow, BoxLayout.X_AXIS));
+        locationRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JRadioButton requestRadio = new JRadioButton("Request", isRequest);
+        JRadioButton responseRadio = new JRadioButton("Response", !isRequest);
+        ButtonGroup locationGroup = new ButtonGroup();
+        locationGroup.add(requestRadio);
+        locationGroup.add(responseRadio);
+        locationRow.add(requestRadio);
+        locationRow.add(Box.createHorizontalStrut(18));
+        locationRow.add(responseRadio);
+        locationRow.add(Box.createHorizontalGlue());
+        panel.add(locationRow);
+        panel.add(Box.createVerticalStrut(5));
 
         JPanel patternRow = new JPanel();
         patternRow.setLayout(new BoxLayout(patternRow, BoxLayout.X_AXIS));
@@ -504,14 +987,10 @@ public class SettingsTab {
         panel.add(patternRow);
         panel.add(Box.createVerticalStrut(5));
 
-        // Hint label for Custom Regex (hidden by default)
+        // Hint label for capture behavior, displayed in the scope header row
         JLabel regexHintLabel = new JLabel();
         regexHintLabel.setFont(regexHintLabel.getFont().deriveFont(11f));
         regexHintLabel.setForeground(Color.GRAY);
-        regexHintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        regexHintLabel.setVisible(true);
-        panel.add(regexHintLabel);
-        panel.add(Box.createVerticalStrut(5));
 
         // Update input field label based on selection
         patternTypeCombo.addActionListener(e -> {
@@ -543,9 +1022,14 @@ public class SettingsTab {
         });
 
         // === Target Scope Section (horizontal layout) ===
-        JLabel scopeLabel = new JLabel("Target URL Scope");
-        scopeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(scopeLabel);
+        JLabel scopeLabel = new JLabel("What is the target scope?");
+        JPanel scopeHeaderPanel = new JPanel();
+        scopeHeaderPanel.setLayout(new BoxLayout(scopeHeaderPanel, BoxLayout.X_AXIS));
+        scopeHeaderPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        scopeHeaderPanel.add(scopeLabel);
+        scopeHeaderPanel.add(Box.createHorizontalGlue());
+        scopeHeaderPanel.add(regexHintLabel);
+        panel.add(scopeHeaderPanel);
 
         JPanel scopeRow = new JPanel();
         scopeRow.setLayout(new BoxLayout(scopeRow, BoxLayout.X_AXIS));
@@ -579,46 +1063,231 @@ public class SettingsTab {
             panel.revalidate();
         });
 
-        // === Commands Section ===
+        // === Encryption Mode Dropdown ===
+        JLabel encModeLabel = new JLabel("Which encryption mode we will use?");
+        encModeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(encModeLabel);
+
+        JComboBox<String> encModeCombo = new JComboBox<>(CryptoEngineRegistry.getDropdownNames());
+        encModeCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        encModeCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(encModeCombo);
+        panel.add(Box.createVerticalStrut(5));
+
+        // Configure button: opens the commands dialog (Custom Command) or the engine
+        // config dialog (AES/RSA), following the same flow for both. A warning label to its
+        // right mirrors the table's Configuration column (e.g. "⚠ Encrypt command is empty.").
+        JButton configureBtn = new JButton("⚙ Configure...");
+        JLabel configWarningLabel = new JLabel(" ");
+        configWarningLabel.setFont(configWarningLabel.getFont().deriveFont(11f));
+
+        JPanel configRow = new JPanel();
+        configRow.setLayout(new BoxLayout(configRow, BoxLayout.X_AXIS));
+        configRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        configRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, configureBtn.getPreferredSize().height));
+        configRow.add(configureBtn);
+        configRow.add(Box.createHorizontalStrut(8));
+        configRow.add(configWarningLabel);
+        configRow.add(Box.createHorizontalGlue());
+        panel.add(configRow);
+        panel.add(Box.createVerticalStrut(5));
+
+        // Holder for engine params (set when config popup is confirmed)
+        final HashMap<String, String>[] engineParamsHolder = new HashMap[] { null };
+
+        // Custom command fields - edited via the "Configure Commands" dialog, kept here
+        // as the backing state (not shown inline).
         JTextField decCommand = new JTextField();
         decCommand.setToolTipText(
                 "Command to decrypt/decode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
-        addLabelAndField(panel, "Decrypt Command", decCommand);
-        addGrayLabel(panel, "{FILE} will be replaced by the path of a temporary file containing the captured data");
-
         JTextField encCommand = new JTextField();
         encCommand.setToolTipText(
                 "Command to encrypt/encode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
-        addLabelAndField(panel, "Encrypt Command", encCommand);
-        addGrayLabel(panel, "{FILE} will be replaced by the path of a temporary file containing the captured data");
 
-        // === Checkboxes ===
+        // Refresh the warning beside the Configure button from the current mode + config state.
+        Runnable refreshConfigWarning = () -> {
+            String selected = (String) encModeCombo.getSelectedItem();
+            boolean isCustom = CryptoEngineRegistry.CUSTOM_COMMAND.equals(selected);
+            String warn = isCustom
+                    ? warningFor(false, null, null, decCommand.getText(), encCommand.getText())
+                    : warningFor(true, CryptoEngineRegistry.getByDisplayName(selected), engineParamsHolder[0], null,
+                            null);
+            if (warn != null) {
+                configWarningLabel.setText("⚠ " + capitalize(warn));
+                configWarningLabel.setForeground(ERROR_COLOR);
+            } else {
+                configWarningLabel.setText(" ");
+            }
+        };
+
+        // Button label reflects the selected mode
+        encModeCombo.addActionListener(e -> {
+            String selected = (String) encModeCombo.getSelectedItem();
+            boolean isCustom = CryptoEngineRegistry.CUSTOM_COMMAND.equals(selected);
+            if (isCustom) {
+                configureBtn.setText("⚙ Configure Commands...");
+            } else {
+                CryptoEngine engine = CryptoEngineRegistry.getByDisplayName(selected);
+                if (engine != null) {
+                    configureBtn.setText("⚙ Configure " + engine.getDisplayName() + "...");
+                }
+            }
+            refreshConfigWarning.run();
+            // Only the button label changes between modes, so relayout in place without
+            // repacking the dialog (which would shrink it back to its preferred size).
+            panel.revalidate();
+            panel.repaint();
+        });
+
+        // Configure button: commands dialog for Custom Command, engine dialog otherwise
+        configureBtn.addActionListener(e -> {
+            String selected = (String) encModeCombo.getSelectedItem();
+            if (CryptoEngineRegistry.CUSTOM_COMMAND.equals(selected)) {
+                openCustomCommandDialog(decCommand, encCommand);
+                refreshConfigWarning.run();
+                return;
+            }
+            CryptoEngine engine = CryptoEngineRegistry.getByDisplayName(selected);
+            if (engine == null) return;
+
+            EngineConfigPanel configPanel = engine.createConfigPanel(engineParamsHolder[0]);
+
+            // Wrap in a dialog
+            JDialog configDialog = new JDialog((java.awt.Frame) null, engine.getDisplayName() + " Configuration", true);
+            configDialog.setLayout(new BorderLayout());
+
+            JScrollPane scrollPane = new JScrollPane(configPanel);
+            scrollPane.setBorder(new EmptyBorder(10, 10, 5, 10));
+            configDialog.add(scrollPane, BorderLayout.CENTER);
+
+            // Validation label: red ⚠ for real problems, amber ⓘ for advisory notes
+            JLabel validationLabel = new JLabel(" ");
+            validationLabel.setBorder(new EmptyBorder(5, 10, 5, 10));
+
+            // Live validation
+            Runnable refreshValidation = () -> {
+                HashMap<String, String> ps = configPanel.getParams();
+                String error = engine.validate(ps);
+                if (error != null) {
+                    validationLabel.setText("⚠ " + error);
+                    validationLabel.setForeground(ERROR_COLOR);
+                } else {
+                    String note = engine.info(ps);
+                    if (note != null) {
+                        validationLabel.setText("ⓘ " + note);
+                        validationLabel.setForeground(INFO_COLOR);
+                    } else {
+                        validationLabel.setText(" ");
+                    }
+                }
+            };
+            configPanel.setOnChangeListener(refreshValidation);
+
+            // OK / Cancel buttons
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            JButton okBtn = new JButton("OK");
+            JButton cancelBtn = new JButton("Cancel");
+            okBtn.addActionListener(ok -> {
+                engineParamsHolder[0] = configPanel.getParams();
+                configDialog.dispose();
+            });
+            cancelBtn.addActionListener(cancel -> {
+                configDialog.dispose();
+            });
+            bindEscape(configDialog, configDialog::dispose);
+            btnPanel.add(okBtn);
+            btnPanel.add(cancelBtn);
+
+            JPanel bottomPanel = new JPanel(new BorderLayout());
+            bottomPanel.add(validationLabel, BorderLayout.CENTER);
+            bottomPanel.add(btnPanel, BorderLayout.EAST);
+            configDialog.add(bottomPanel, BorderLayout.SOUTH);
+
+            configDialog.setMinimumSize(new Dimension(550, 300));
+            configDialog.pack();
+            configDialog.setLocationRelativeTo(null);
+            refreshValidation.run(); // initial state
+            configDialog.setVisible(true);
+            refreshConfigWarning.run(); // reflect the new config on the pattern dialog
+        });
+
+        // === Optional settings (collapsible) ===
+        // "Optional settings" makes clear these can be skipped; collapsed by default to keep
+        // the dialog simple, but always discoverable.
+        panel.add(Box.createVerticalStrut(8));
+
+        JPanel moreSettingsPanel = new JPanel();
+        moreSettingsPanel.setLayout(new BoxLayout(moreSettingsPanel, BoxLayout.Y_AXIS));
+        moreSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        moreSettingsPanel.setVisible(false);
+
         JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decrypting", true);
-        addComponent(panel, cacheCommandsCheckbox);
-        addGrayLabel(panel, "Save decrypted outputs, and load them when a decrypt command fails");
+        addComponent(moreSettingsPanel, cacheCommandsCheckbox);
+        addGrayLabel(moreSettingsPanel, "Save decrypted outputs, and load them when a decrypt command fails");
+
+        JCheckBox dontCacheGarbageCheckbox = new JCheckBox("Do not cache garbage decryptions", true);
+        dontCacheGarbageCheckbox.setBorder(new EmptyBorder(0, 20, 0, 0));
+        addComponent(moreSettingsPanel, dontCacheGarbageCheckbox);
+        addGrayLabel(moreSettingsPanel,
+                "Skips caching output that looks like a wrong-key result. May rarely skip valid binary/non-text output.");
+        // Only meaningful when caching is on
+        dontCacheGarbageCheckbox.setEnabled(cacheCommandsCheckbox.isSelected());
+        cacheCommandsCheckbox.addActionListener(
+                e -> dontCacheGarbageCheckbox.setEnabled(cacheCommandsCheckbox.isSelected()));
 
         JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in Extra Settings", true);
-        addComponent(panel, saveToLogCheckbox);
-        addGrayLabel(panel,
-                "Later you can open the file and easily search for plaintext data. Proxy data will also be logged if the option below is enabled");
+        addComponent(moreSettingsPanel, saveToLogCheckbox);
+        addGrayLabel(moreSettingsPanel,
+                "Allowing you to easily search in plaintext data. Proxy data will also be logged if the next option is enabled");
 
-        JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy " + (isRequest ? "requests" : "responses"), false);
-        addComponent(panel, patchProxyCheckbox);
+        JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy traffic", false);
+        addComponent(moreSettingsPanel, patchProxyCheckbox);
+        addGrayLabel(moreSettingsPanel, "Automatically re-encrypt proxy data");
 
-        addGrayLabel(panel, "Automatically re-encrypt proxy data");
+        JButton moreSettingsBtn = new JButton("▸ Optional settings");
+        moreSettingsBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        moreSettingsBtn.addActionListener(ev -> {
+            boolean show = !moreSettingsPanel.isVisible();
+            moreSettingsPanel.setVisible(show);
+            moreSettingsBtn.setText(show ? "▾ Optional settings" : "▸ Optional settings");
+            panel.revalidate();
+            java.awt.Window parentWindow = javax.swing.SwingUtilities.getWindowAncestor(panel);
+            if (parentWindow != null) {
+                parentWindow.pack();
+                if (parentWindow.getWidth() < 560) {
+                    parentWindow.setSize(560, parentWindow.getHeight());
+                }
+            }
+        });
+        panel.add(moreSettingsBtn);
+        panel.add(Box.createVerticalStrut(3));
+        panel.add(moreSettingsPanel);
 
-        JCheckBox enabledCheckbox = new JCheckBox("Pattern enabled", true);
-        addComponent(panel, enabledCheckbox);
+        // === Validation alert label ===
+        JLabel alertLabel = new JLabel(" ");
+        alertLabel.setForeground(new Color(200, 50, 50));
+        alertLabel.setFont(alertLabel.getFont().deriveFont(12f));
+        alertLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(Box.createVerticalStrut(5));
+        panel.add(alertLabel);
 
         // === Populate fields for editing or set defaults for new ===
         if (existingPattern != null) {
             nameField.setText(existingPattern.getName());
             decCommand.setText(existingPattern.getDecCommand());
             encCommand.setText(existingPattern.getEncCommand());
-            enabledCheckbox.setSelected(existingPattern.isEnabled());
             patchProxyCheckbox.setSelected(existingPattern.shouldPatchProxy());
             cacheCommandsCheckbox.setSelected(existingPattern.shouldUseCacheSystem());
             saveToLogCheckbox.setSelected(existingPattern.shouldSaveToLog());
+            dontCacheGarbageCheckbox.setSelected(existingPattern.shouldDetectGarbage());
+            dontCacheGarbageCheckbox.setEnabled(existingPattern.shouldUseCacheSystem());
+
+            // Auto-expand the optional settings when any differ from defaults, so they're visible
+            if (existingPattern.shouldPatchProxy() || !existingPattern.shouldUseCacheSystem()
+                    || !existingPattern.shouldSaveToLog() || !existingPattern.shouldDetectGarbage()) {
+                moreSettingsPanel.setVisible(true);
+                moreSettingsBtn.setText("▾ Optional settings");
+            }
 
             // Set pattern type and input from stored values
             patternTypeCombo.setSelectedItem(existingPattern.getPatternType().getDisplayName());
@@ -634,13 +1303,38 @@ public class SettingsTab {
                 scopeInputField.setText(urlRegex);
                 scopeInputPanel.setVisible(true);
             }
+
+            // Set encryption mode if engine is used
+            if (existingPattern.usesEngine()) {
+                CryptoEngine engine = CryptoEngineRegistry.get(existingPattern.getEngineId());
+                if (engine != null) {
+                    encModeCombo.setSelectedItem(engine.getDisplayName());
+                    engineParamsHolder[0] = existingPattern.getEngineParams() != null
+                            ? new HashMap<>(existingPattern.getEngineParams())
+                            : null;
+                }
+            }
         } else {
-            // New pattern - auto-generate name
-            nameField.setText(config.generateUniqueName(isRequest));
+            // New pattern - auto-generate name (or use a seeded name, e.g. from Analyze)
+            nameField.setText(seedName != null ? seedName : config.generateUniqueName(isRequest));
             setPlaceholder(decCommand, "cat {FILE} ");
             setPlaceholder(encCommand, "cat {FILE} ");
             // Default to Parameter JSON for new patterns
             patternTypeCombo.setSelectedItem(PatternType.PARAMETER_JSON.getDisplayName());
+
+            // Seed engine + params from an analysis suggestion (stays a NEW pattern)
+            if (seedEngineId != null) {
+                CryptoEngine seedEngine = CryptoEngineRegistry.get(seedEngineId);
+                if (seedEngine != null) {
+                    encModeCombo.setSelectedItem(seedEngine.getDisplayName());
+                    engineParamsHolder[0] = seedEngineParams != null ? new HashMap<>(seedEngineParams) : null;
+                }
+            }
+            // Seed the capture as a Custom Regex built from the analyzed selection
+            if (seedCaptureRegex != null) {
+                patternTypeCombo.setSelectedItem(PatternType.CUSTOM_REGEX.getDisplayName());
+                patternInputField.setText(seedCaptureRegex);
+            }
         }
 
         // Trigger initial visibility update
@@ -648,6 +1342,8 @@ public class SettingsTab {
                 .actionPerformed(new ActionEvent(patternTypeCombo, ActionEvent.ACTION_PERFORMED, "init"));
         scopeTypeCombo.getActionListeners()[0]
                 .actionPerformed(new ActionEvent(scopeTypeCombo, ActionEvent.ACTION_PERFORMED, "init"));
+        encModeCombo.getActionListeners()[0]
+                .actionPerformed(new ActionEvent(encModeCombo, ActionEvent.ACTION_PERFORMED, "init"));
 
         String[] options = { "OK", "Cancel" };
 
@@ -655,6 +1351,13 @@ public class SettingsTab {
                 options, options[0]);
 
         JDialog dialog = optionPane.createDialog(existingPattern == null ? "Adding Pattern" : "Editing Pattern");
+
+        // Enforce a sensible default width so the input fields aren't cramped
+        int minWidth = 560;
+        if (dialog.getWidth() < minWidth) {
+            dialog.setSize(minWidth, dialog.getHeight());
+            dialog.setLocationRelativeTo(null);
+        }
 
         while (true) {
             dialog.setVisible(true);
@@ -669,10 +1372,12 @@ public class SettingsTab {
             String patternInput = patternInputField.getText();
             String regex = selectedPatternType.buildRegex(patternInput);
             if (regex == null || regex.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(null, "You HAVE TO define a pattern.", "Error",
-                        JOptionPane.ERROR_MESSAGE);
+                alertLabel.setText("⚠ Define what should be captured.");
                 continue;
             }
+
+            // Chosen location from the radio (may differ from the initial value on edit)
+            boolean chosenIsRequest = requestRadio.isSelected();
 
             // Build scope from dropdown selection
             String scopeSelection = (String) scopeTypeCombo.getSelectedItem();
@@ -681,11 +1386,11 @@ public class SettingsTab {
 
             String name = nameField.getText();
             if (name == null || name.isEmpty()) {
-                name = config.generateUniqueName(isRequest);
+                name = config.generateUniqueName(chosenIsRequest);
             }
 
             boolean duplicate = false;
-            for (CapturePattern p : config.getPatterns(isRequest)) {
+            for (CapturePattern p : config.getPatterns(chosenIsRequest)) {
                 if (p.getName().equals(name)) {
                     if (existingPattern != null && p == existingPattern) {
                         continue;
@@ -696,18 +1401,119 @@ public class SettingsTab {
             }
 
             if (duplicate) {
-                JOptionPane.showMessageDialog(null,
-                        "A pattern with this name already exists.\nPlease choose a unique name.", "Error",
-                        JOptionPane.ERROR_MESSAGE);
+                alertLabel.setText("⚠ That name is already taken. Pick a different one.");
                 continue;
             }
 
-            pattern = new CapturePattern(name, regex, scopeRegex, decCommand.getText(), encCommand.getText(),
-                    enabledCheckbox.isSelected(), patchProxyCheckbox.isSelected(), cacheCommandsCheckbox.isSelected(),
-                    saveToLogCheckbox.isSelected(), useProjectScope, selectedPatternType, patternInput);
-            break;
+            // Clear any previous alert
+            alertLabel.setText(" ");
+
+            // Determine if using engine or custom command
+            String selectedMode = (String) encModeCombo.getSelectedItem();
+            CryptoEngine selectedEngine = CryptoEngineRegistry.getByDisplayName(selectedMode);
+
+            // Enabled is toggled from the table; preserve it on edit, default to true for new
+            boolean enabled = existingPattern != null ? existingPattern.isEnabled() : true;
+
+            if (selectedEngine != null) {
+                // Engine-based pattern
+                pattern = new CapturePattern(name, regex, scopeRegex, enabled,
+                        patchProxyCheckbox.isSelected(), cacheCommandsCheckbox.isSelected(),
+                        saveToLogCheckbox.isSelected(), useProjectScope, selectedPatternType, patternInput,
+                        selectedEngine.getId(), engineParamsHolder[0]);
+            } else {
+                // Custom command pattern
+                pattern = new CapturePattern(name, regex, scopeRegex, decCommand.getText(), encCommand.getText(),
+                        enabled, patchProxyCheckbox.isSelected(),
+                        cacheCommandsCheckbox.isSelected(), saveToLogCheckbox.isSelected(), useProjectScope,
+                        selectedPatternType, patternInput);
+            }
+            pattern.setDetectGarbage(dontCacheGarbageCheckbox.isSelected());
+            return new PatternResult(pattern, chosenIsRequest);
         }
-        return pattern;
+    }
+
+    /**
+     * Modal dialog to configure the Custom Command decrypt/encrypt commands, with room
+     * to explain the {DATA} and {FILE} placeholders. Edits the given fields in place;
+     * Cancel restores their previous contents.
+     */
+    private void openCustomCommandDialog(JTextField decCommand, JTextField encCommand) {
+        JDialog dialog = new JDialog((java.awt.Frame) null, "Configure Commands", true);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        // Plain-text wrapped area (Burp disables HTML rendering in Swing labels)
+        javax.swing.JTextArea explain = new javax.swing.JTextArea(
+                "Decrypt converts the captured data to plaintext. Encrypt converts it back.\n\n"
+                        + "Use these placeholders in either command:\n"
+                        + "  • {DATA} — the captured data, inserted inline.\n"
+                        + "  • {FILE} — path to a temp file holding the data (best for binary or large data).\n\n"
+                        + "The command's output is used as the result.");
+        explain.setEditable(false);
+        explain.setLineWrap(true);
+        explain.setWrapStyleWord(true);
+        explain.setOpaque(false);
+        explain.setFocusable(false);
+        explain.setBorder(null);
+        explain.setFont(javax.swing.UIManager.getFont("Label.font"));
+        explain.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Fix the width first so the wrapped height is computed correctly, then pin the
+        // size so BoxLayout lays it out stably (no fields hidden / no jumping on resize).
+        int explainWidth = 460;
+        explain.setSize(explainWidth, Short.MAX_VALUE);
+        Dimension explainSize = new Dimension(explainWidth, explain.getPreferredSize().height);
+        explain.setPreferredSize(explainSize);
+        explain.setMaximumSize(explainSize);
+        explain.setMinimumSize(explainSize);
+        content.add(explain);
+        content.add(Box.createVerticalStrut(12));
+
+        // Snapshot for Cancel (text + foreground, to preserve placeholder styling)
+        String decSnapshot = decCommand.getText();
+        String encSnapshot = encCommand.getText();
+        Color decFg = decCommand.getForeground();
+        Color encFg = encCommand.getForeground();
+
+        addLabelAndField(content, "Decrypt Command", decCommand);
+        addLabelAndField(content, "Encrypt Command", encCommand);
+        content.add(Box.createVerticalGlue()); // absorb extra space at the bottom
+
+        dialog.add(content, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton okBtn = new JButton("OK");
+        JButton cancelBtn = new JButton("Cancel");
+        okBtn.addActionListener(a -> dialog.dispose());
+        Runnable cancel = () -> {
+            decCommand.setText(decSnapshot);
+            decCommand.setForeground(decFg);
+            encCommand.setText(encSnapshot);
+            encCommand.setForeground(encFg);
+            dialog.dispose();
+        };
+        cancelBtn.addActionListener(a -> cancel.run());
+        bindEscape(dialog, cancel);
+        // Enter confirms — only here for Custom Command (the engine dialogs have many fields)
+        dialog.getRootPane().setDefaultButton(okBtn);
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+        dialog.add(btnPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        // Don't allow shrinking below the packed size, which would hide the fields
+        dialog.setMinimumSize(dialog.getSize());
+        dialog.setLocationRelativeTo(null);
+        dialog.setVisible(true);
+    }
+
+    /** Make Escape run the given action (used to cancel/close modal config dialogs). */
+    private static void bindEscape(JDialog dialog, Runnable onEscape) {
+        dialog.getRootPane().registerKeyboardAction(e -> onEscape.run(),
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
     private void addLabelAndField(JPanel panel, String labelText, JTextField field) {
@@ -738,7 +1544,6 @@ public class SettingsTab {
     }
 
     private JPanel createSettingsScreen() {
-        JPanel painelBorderLayout = new JPanel(new BorderLayout());
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
@@ -748,9 +1553,28 @@ public class SettingsTab {
         createPrintTabSettings(panel, false);
         createCacheSettings(panel);
 
-        painelBorderLayout.add(panel, BorderLayout.NORTH);
+        // Wrap content so it stays top-aligned inside the scroll pane
+        JPanel panelWrapper = new JPanel(new BorderLayout());
+        panelWrapper.add(panel, BorderLayout.NORTH);
 
-        return addPanelInternalText("Optionally, adjust extra settings", painelBorderLayout);
+        JScrollPane scrollPane = new JScrollPane(panelWrapper);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setBorder(null);
+
+        // Use BorderLayout so the scroll pane fills all available vertical space in the tab
+        JLabel titleLabel = new JLabel("Optionally, adjust extra settings");
+        titleLabel.setFont(hackFont);
+        titleLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        JPanel outer = new JPanel(new BorderLayout());
+        outer.add(titleLabel, BorderLayout.NORTH);
+        JPanel scrollWrapper = new JPanel(new BorderLayout());
+        scrollWrapper.setBorder(new EmptyBorder(0, 10, 10, 10));
+        scrollWrapper.add(scrollPane, BorderLayout.CENTER);
+        outer.add(scrollWrapper, BorderLayout.CENTER);
+
+        return outer;
     }
 
     private void createRepeaterSettings(JPanel panel) {
@@ -986,23 +1810,6 @@ public class SettingsTab {
         });
     }
 
-    private int moveRow(DefaultTableModel model, int fromIndex, int toIndex) {
-        if (toIndex < 0 || toIndex > model.getRowCount() - 1)
-            return fromIndex;
-        // Save the row data
-        Object[] rowData = new Object[model.getColumnCount()];
-        for (int col = 0; col < model.getColumnCount(); col++) {
-            rowData[col] = model.getValueAt(fromIndex, col);
-        }
-
-        // Remove the row from the current position
-        model.removeRow(fromIndex);
-
-        // Insert the row at the new position
-        model.insertRow(toIndex, rowData);
-        return toIndex;
-    }
-
     private void setPlaceholder(JTextField textField, String placeholder) {
         textField.setDisabledTextColor(Color.GRAY);
         if (textField.getText().isEmpty()) {
@@ -1026,27 +1833,6 @@ public class SettingsTab {
                 }
             }
         });
-    }
-
-    private void updateTable(DefaultTableModel model, Config config, boolean isRequest) {
-        // Clear the table and reload all patterns from the config
-        model.setRowCount(0);
-        var updatedPatterns = config.getPatterns(isRequest);
-        for (var updatedPattern : updatedPatterns) {
-            // Display human-readable scope value
-            String scopeDisplay;
-            if (updatedPattern.usesProjectScope()) {
-                scopeDisplay = "Project In-Scope";
-            } else if (updatedPattern.getURLTargetRegex() == null || updatedPattern.getURLTargetRegex().isEmpty()) {
-                scopeDisplay = "Everything";
-            } else {
-                scopeDisplay = updatedPattern.getURLTargetRegex();
-            }
-            model.addRow(new Object[] { updatedPattern.isEnabled(), updatedPattern.getName(),
-                    updatedPattern.getCaptureRegex(), scopeDisplay, updatedPattern.shouldPatchProxy(),
-                    updatedPattern.getDecCommand(), updatedPattern.getEncCommand() });
-        }
-
     }
 
     private JPanel addPanelInternalText(String text, JPanel subpanel) {

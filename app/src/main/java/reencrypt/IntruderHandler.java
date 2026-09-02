@@ -150,7 +150,7 @@ public class IntruderHandler implements HttpHandler {
                 continue;
             try {
                 // Search for ciphertext and decrypt
-                CommandOutput commandOutput = reEncrypt.searchAndDecrypt(pattern, content, logData);
+                OperationResult commandOutput = reEncrypt.searchAndDecrypt(pattern, content, logData);
 
                 if (commandOutput.isFailed()) {
                     if (commandOutput.isCached()) {

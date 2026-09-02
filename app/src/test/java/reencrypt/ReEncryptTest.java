@@ -97,7 +97,7 @@ public class ReEncryptTest {
         byte[] content = "data=ciphertext&other=1".getBytes();
         LogData logData = new LogData("Test", true, "GET", "http://test");
 
-        CommandOutput output = reEncrypt.searchAndDecrypt(pattern, content, logData);
+        OperationResult output = reEncrypt.searchAndDecrypt(pattern, content, logData);
 
         assertFalse(output.isFailed());
         String out = output.getOutput(); // ShellCommand handles newline stripping now

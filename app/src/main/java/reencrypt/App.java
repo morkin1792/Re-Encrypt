@@ -22,7 +22,11 @@ public class App implements BurpExtension {
         api.extension().setName(name);
 
         var config = new Config(api.persistence());
-        api.userInterface().registerSuiteTab(name, new SettingsTab(config).uiComponent());
+        for (String error : config.getLoadErrors()) {
+            api.logging().logToError(error);
+        }
+        SettingsTab settingsTab = new SettingsTab(api, config);
+        api.userInterface().registerSuiteTab(name, settingsTab.uiComponent());
 
         var reEncrypt = new ReEncrypt(config);
         api.userInterface().registerHttpRequestEditorProvider(new HttpRequestEditorProvider() {
@@ -42,6 +46,7 @@ public class App implements BurpExtension {
         api.proxy().registerResponseHandler(new ProxyHandler(api, reEncrypt));
         api.http().registerHttpHandler(new IntruderHandler(api, reEncrypt));
         api.intruder().registerPayloadProcessor(new IntruderPayloadProcessor(api, reEncrypt));
+        api.userInterface().registerContextMenuItemsProvider(new AnalyzeContextMenuProvider(settingsTab));
     }
 
 }
