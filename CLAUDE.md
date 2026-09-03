@@ -54,7 +54,30 @@ The unit of configuration, stored in two lists (request / response) on `Config`.
 1. **Custom command mode** — runs `decCommand` / `encCommand` through `ShellCommand`.
 2. **Engine mode** — uses a built-in `CryptoEngine` (`engineId` + flat `engineParams` map).
 
-`CapturePattern` is `Serializable` and persisted via Java serialization → base64 (see `Utils.serialize`/`Config`). **Adding or renaming fields risks breaking deserialization of saved patterns** — note the existing multiple constructors and the legacy constructor that exist for backward compatibility. Targeting is decided by `isTarget()` (Burp project scope, or `urlTargetRegex`, or match-all when empty).
+`CapturePattern` is a plain POJO persisted as JSON via `ConfigJson` (see below) — it is deliberately **not** `Serializable`. Note the multiple constructors, including a legacy one kept for callers. Targeting is decided by `isTarget()` (Burp project scope, or `urlTargetRegex`, or match-all when empty).
+
+### Persistence and config transfer (`ConfigJson`, `ui.PatternIo`, `AutoLoader`)
+
+One JSON format serves both Re:Encrypt's own persistence and the export/import files, so the exchange
+code is exercised on every save instead of only when someone clicks Export.
+
+- `ConfigJson.listToJson` / `listFromJson` — one pattern list, used for persistence (the request/response
+  split is the storage key, so no `isRequest` field is written).
+- `ConfigJson.toFile` / `fromFile` — exchange files: `{"reencrypt":1,"exported":…,"patterns":[…],"settings":{…}}`.
+  Each pattern carries `isRequest` but **no `enabled`**: whether a pattern runs is the importer's
+  call (the import dialog's checkbox), and `fromNode` defaults it to true so auto-load — which has no
+  prompt — takes effect. `settings` is omitted by a patterns-only export. Unknown keys are
+  ignored; a bad entry is skipped and reported in `ImportResult.errors` rather than failing the file.
+- **Exporting downgrades "Project In-Scope" to "Everything"** — that scope resolves against the receiving
+  Burp project's Target scope, which a file cannot carry.
+- `ui.PatternIo` — the file choosers, the import review dialog (which shows each pattern's decrypt
+  command, the only place the user sees what code an import will run) and the collision policy.
+- `AutoLoader` — optional mtime poll on one file, replacing the whole pattern set on each change so a
+  producer can delete patterns. Its `settings` block is ignored.
+
+JSON comes from **Gson, shaded to `reencrypt.shaded.gson`**. Montoya ships a JSON API but it is backed
+by an `ObjectFactoryLocator.FACTORY` that only Burp populates, so it is null under unit tests and would
+make persistence untestable.
 
 ### Crypto engine layer (`reencrypt.engine`)
 
@@ -62,7 +85,9 @@ Pluggable built-in crypto, an alternative to shell commands. To add an engine: i
 
 ### Shell command execution (`ShellCommand`)
 
-Runs `bash -c` (POSIX) or `cmd.exe /c` (Windows), `redirectErrorStream(true)`. Two placeholders substitute the captured data: `{DATA}` (inline) and `{FILE}` (path to a temp file, auto-deleted). **Exactly one trailing newline is stripped** (`\r\n` or `\n`) to absorb `echo`-style output while preserving other whitespace — `ShellCommandTest` pins this behavior.
+Runs `bash -c` (POSIX) or `cmd.exe /c` (Windows). Two placeholders substitute the captured data: `{DATA}` (inline) and `{FILE}` (path to a temp file, auto-deleted, created owner-readable only since it holds plaintext). **Exactly one trailing newline is stripped** (`\r\n` or `\n`) to absorb `echo`-style output while preserving other whitespace — `ShellCommandTest` pins this behavior.
+
+Two execution paths: `execute()` merges stderr into stdout so command errors surface in the editor tab, while `executeRawChecked()` (binary output, e.g. DER key bytes for `KeyLoader`) keeps stderr **out** of the returned bytes — a command that exits 0 while printing a warning would otherwise corrupt the key material — and redirects it to a file, reporting it only on a non-zero exit.
 
 ### Result & caching
 
@@ -75,7 +100,4 @@ Runs `bash -c` (POSIX) or `cmd.exe /c` (Windows), `redirectErrorStream(true)`. T
 - Editors read/write bytes using the `Windows-1252` charset to round-trip binary faithfully (see `RequestResponseTab.setBytes`).
 - `Config.checkReloadEditors()` is a consume-once flag that tells editor tabs to rebuild after pattern edits.
 - Persisted state lives in Burp's `PersistedObject` (`persistence().extensionData()`), not files — except the human-readable activity log written to `~/reencrypt.log` (path configurable).
-
-## In-progress work
-
-The current branch (`multi-capturing-data`) has uncommitted additions: the entire `reencrypt.engine` package, the `ui.*ConfigPanel` classes, and `OperationResult` (which replaced the deleted `CommandOutput`). Treat the engine layer as new/evolving. `ALT.md` and `crypt.md` are scratch design notes, and the README's TODO section tracks planned features (cryptanalysis playground, more algorithms, WebSocket support, import/export, BApp Store submission).
+- `Config` records load failures in `getLoadErrors()`; `App` reports them via `logging().logToError()` so unreadable stored config is visible instead of silently producing an empty table.

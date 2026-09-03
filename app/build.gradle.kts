@@ -21,6 +21,9 @@ dependencies {
     // This dependency is used by the application.
     implementation("net.portswigger.burp.extensions:montoya-api:2025.8")
     implementation("net.openhft:zero-allocation-hashing:0.27ea1")
+    // JSON for persistence + export/import. Montoya ships a JSON API, but it is backed by a factory
+    // Burp injects at runtime, so it is null under unit tests - persistence would be untestable.
+    implementation("com.google.code.gson:gson:2.11.0")
     
     // Testing
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
@@ -35,6 +38,7 @@ tasks.jar {
 tasks.shadowJar {
     // This is necessary to make the hashing library net.openhft:zero-allocation-hashing work in Burp Suite
     relocate("net.openhft.hashing", "reencrypt.shaded.hashing")
+    relocate("com.google.gson", "reencrypt.shaded.gson")
     archiveClassifier.set("encrypt")
     archiveBaseName.set("re")
 }

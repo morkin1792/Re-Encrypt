@@ -48,6 +48,22 @@ public class ReEncryptTest {
     }
 
     @Test
+    void generateUniqueNameSkipsNamesAlreadyTaken() {
+        // Manual renames can park "Pattern 2" on the first row, so a count-based name would collide.
+        config.addPattern(namedPattern("Pattern 2"), true);
+        assertEquals("Pattern 3", config.generateUniqueName(true));
+
+        // Both lists are checked: the settings table shows them merged.
+        config.addPattern(namedPattern("Pattern 3"), false);
+        assertEquals("Pattern 4", config.generateUniqueName(true));
+    }
+
+    private static CapturePattern namedPattern(String name) {
+        return new CapturePattern(name, "(.*)", "", "d", "e",
+                true, false, false, false, false, PatternType.CUSTOM_REGEX, "(.*)");
+    }
+
+    @Test
     void testSearchPattern() throws Exception {
         byte[] text = "key=\"value\"".getBytes();
         int[] indexes = ReEncrypt.searchPattern("key=\"(.*?)\"", text);

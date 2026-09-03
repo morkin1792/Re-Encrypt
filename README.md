@@ -12,7 +12,7 @@
 ## 📦 Installation
 
 ### Requirements
-* Burp Suite v2024.x or later (Recommended v2025.9+).
+* Burp Suite v2024.x or later (Recommended to use the latest available).
 * Java 21 or later.
 
 ### Build from Source
@@ -23,10 +23,13 @@
 ```
 3. Load the generated JAR (`app/build/libs/re-encrypt.jar`) in Burp Suite via **Extensions > Installed > Add**.
 
+
+⚠️ UNDER CONSTRUCTION ⚠️
+
+INSTRUCTIONS BELOW HAVE TO BE UPDATED IN THE NEAR FUTURE!
+
+<strike>
 ## ⚙️ Configuration
-
-Configure your rules in the **Re-Encrypt** tab.
-
 ### 1. Define Patterns
 Add regex patterns to capture the data you want to transform.
 * **Request Patterns**: Target encrypted data in requests (e.g., `data=(.*?)&`).
@@ -46,6 +49,7 @@ Define the shell commands to execute for each pattern.
 ```bash
 python /path/to/script.py --decrypt --file {FILE}
 ```
+</strike>
 
 ## 🚀 Usage
 

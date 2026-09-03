@@ -1,15 +1,11 @@
 package reencrypt;
 
-import java.io.Serializable;
 import java.util.HashMap;
 import java.util.regex.Pattern;
 
 import burp.api.montoya.MontoyaApi;
 
-public class CapturePattern implements Serializable {
-    // Fixed so adding fields later doesn't break deserialization of saved patterns
-    private static final long serialVersionUID = 1L;
-
+public class CapturePattern {
     boolean enabled, patchProxy, useCacheSystem, saveToLog, useProjectScope;
     String name;
     String captureRegex;

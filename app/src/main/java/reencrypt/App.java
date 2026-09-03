@@ -47,6 +47,12 @@ public class App implements BurpExtension {
         api.http().registerHttpHandler(new IntruderHandler(api, reEncrypt));
         api.intruder().registerPayloadProcessor(new IntruderPayloadProcessor(api, reEncrypt));
         api.userInterface().registerContextMenuItemsProvider(new AnalyzeContextMenuProvider(settingsTab));
+
+        AutoLoader autoLoader = new AutoLoader(config, api.logging()::logToOutput);
+        settingsTab.setAutoLoader(autoLoader);
+        if (config.isAutoLoadEnabled()) {
+            autoLoader.start(config.getAutoLoadPath(), config.getAutoLoadIntervalSeconds());
+        }
     }
 
 }
