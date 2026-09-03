@@ -5,6 +5,8 @@ import javax.swing.table.TableColumnModel;
 
 import burp.api.montoya.MontoyaApi;
 import reencrypt.CapturePattern;
+import reencrypt.AutoLoader;
+import reencrypt.ConfigJson;
 import reencrypt.Config;
 import reencrypt.PatternType;
 import reencrypt.engine.CryptoEngine;
@@ -16,7 +18,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Container;
+import java.awt.Frame;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -44,6 +46,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JFrame;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JDialog;
@@ -52,6 +55,9 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.WindowConstants;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -84,10 +90,12 @@ public class SettingsTab {
     private DefaultTableModel patternModel;
     private JTable patternTable;
     // Analyze tab wiring (set in createAnalyzeScreen)
+    private static final String SETTINGS_TAB_TITLE = "General Settings";
     private JTabbedPane mainTabbedPane;
-    private int analyzeTabIndex = -1;
+    private JFrame analyzeWindow;
     private MarkerEditor analyzeEditor;
     private JPanel analyzeResultsPanel;
+    private AutoLoader autoLoader;
     private char currentSplitDelimiter; // delimiter of the split currently shown, or '\0'
 
     public SettingsTab(MontoyaApi api, Config config) {
@@ -95,22 +103,30 @@ public class SettingsTab {
         this.config = config;
     }
 
+    public void setAutoLoader(AutoLoader autoLoader) {
+        this.autoLoader = autoLoader;
+    }
+
+    /**
+     * The tab tree, built once. Rebuilding it would re-point patternModel/patternTable at a fresh,
+     * invisible table, so every later refresh would update a discarded copy - this is also the dialog
+     * parent for the export/import prompts.
+     */
     public Component uiComponent() {
+        if (mainTabbedPane != null) {
+            return mainTabbedPane;
+        }
         JTabbedPane tabbedPane = new JTabbedPane();
         this.mainTabbedPane = tabbedPane;
 
         tabbedPane.add("Capturing + Processing", createCaptureDataScreen());
-
-        Component analyzeScreen = createAnalyzeScreen();
-        tabbedPane.add("Analyze Ciphertext", analyzeScreen);
-        analyzeTabIndex = tabbedPane.indexOfComponent(analyzeScreen);
 
         tabbedPane.add("Intruder Settings", createIntruderScreen());
 
         tabbedPane.add("(TODO) WebSockets ", null);
         tabbedPane.setEnabledAt(tabbedPane.getTabCount() - 1, false);
 
-        tabbedPane.add("Extra Settings", createSettingsScreen());
+        tabbedPane.add(SETTINGS_TAB_TITLE, createSettingsScreen());
 
         return tabbedPane;
     }
@@ -368,40 +384,28 @@ public class SettingsTab {
         }
     }
 
-    private void selectAnalyzeTab() {
-        bringSuiteTabToFront();
-        if (mainTabbedPane != null && analyzeTabIndex >= 0) {
-            mainTabbedPane.setSelectedIndex(analyzeTabIndex);
-        }
-    }
-
     /**
-     * Bring the Re-Encrypt suite tab to the front in Burp's main window by walking up the
-     * Swing hierarchy and selecting our component in every enclosing tabbed pane. (Montoya
-     * has no API to select a suite tab, so this is a best-effort UI traversal.)
+     * Show the ciphertext analyzer in its own window. Built once and reused, so the analysis state
+     * survives being closed and reopened.
      */
-    private void bringSuiteTabToFront() {
-        if (mainTabbedPane == null) {
-            return;
+    private void showAnalyzeWindow() {
+        if (analyzeWindow == null) {
+            analyzeWindow = new JFrame("Re:Encrypt - Analyze Ciphertext");
+            analyzeWindow.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+            analyzeWindow.setContentPane((JComponent) createAnalyzeScreen());
+            analyzeWindow.setSize(1100, 700);
+            analyzeWindow.setLocationRelativeTo(mainTabbedPane);
         }
-        Component child = mainTabbedPane;
-        Container parent = child.getParent();
-        while (parent != null) {
-            if (parent instanceof JTabbedPane) {
-                JTabbedPane tp = (JTabbedPane) parent;
-                if (tp.indexOfComponent(child) >= 0) {
-                    tp.setSelectedComponent(child);
-                }
-            }
-            child = parent;
-            parent = parent.getParent();
-        }
+        analyzeWindow.setVisible(true);
+        analyzeWindow.setExtendedState(analyzeWindow.getExtendedState() & ~Frame.ICONIFIED);
+        analyzeWindow.toFront();
+        analyzeWindow.requestFocus();
     }
 
     /** Entry point used by the context-menu provider for a sent request (+ optional response). */
     public void analyzeRequestResponse(String requestText, boolean hasResponse, String responseText) {
         SwingUtilities.invokeLater(() -> {
-            selectAnalyzeTab();
+            showAnalyzeWindow();
             if (analyzeEditor != null) {
                 analyzeEditor.setContent(requestText, hasResponse, responseText);
             }
@@ -411,7 +415,7 @@ public class SettingsTab {
     /** Entry point for a pasted/selected ciphertext string. */
     public void analyzePasted(String text) {
         SwingUtilities.invokeLater(() -> {
-            selectAnalyzeTab();
+            showAnalyzeWindow();
             if (analyzeEditor != null) {
                 analyzeEditor.setPastedContent(text);
             }
@@ -455,6 +459,22 @@ public class SettingsTab {
         } finally {
             suppressTableEvents = false;
         }
+    }
+
+    /**
+     * Rebuild the General Settings tab so its fields show the imported values. The widgets read config
+     * only while being created, so there is nothing lighter than recreating them.
+     */
+    private void reloadSettingsScreen() {
+        if (mainTabbedPane == null) {
+            return;
+        }
+        int index = mainTabbedPane.indexOfTab(SETTINGS_TAB_TITLE);
+        if (index < 0) {
+            return;
+        }
+        // Deferred: this runs from a listener on a component inside the panel being replaced.
+        SwingUtilities.invokeLater(() -> mainTabbedPane.setComponentAt(index, createSettingsScreen()));
     }
 
     private void appendPatternRows(boolean isRequest) {
@@ -594,6 +614,13 @@ public class SettingsTab {
             }
         });
 
+        ActionListener exportAction = e -> PatternIo.export(uiComponent(), selectedPatternsOrAll(), null);
+        ActionListener importAction = e -> {
+            if (PatternIo.importFrom(uiComponent(), config, false)) {
+                reloadPatternTable();
+            }
+        };
+
         ActionListener addAction = e -> {
             PatternResult r = createOrEditPatternPopup(true);
             if (r == null) {
@@ -693,8 +720,11 @@ public class SettingsTab {
                         popup.addSeparator();
                         addMenuItem(popup, "Up", upAction);
                         addMenuItem(popup, "Down", downAction);
+                        popup.addSeparator();
+                        addMenuItem(popup, "Export", exportAction);
                     } else {
                         addMenuItem(popup, "Add", addAction);
+                        addMenuItem(popup, "Import", importAction);
                     }
                     popup.show(e.getComponent(), e.getX(), e.getY());
                 }
@@ -727,14 +757,37 @@ public class SettingsTab {
         upButton.addActionListener(upAction);
         JButton downButton = new JButton("Down");
         downButton.addActionListener(downAction);
+        JButton exportButton = new JButton("Export");
+        exportButton.addActionListener(exportAction);
+        JButton importButton = new JButton("Import");
+        importButton.addActionListener(importAction);
 
-        JPanel buttonPanel = new JPanel(new GridLayout(6, 1, 0, 5));
+        // Add and Import always apply. The rest need something to act on: Export needs a non-empty
+        // table (a file holding "patterns": [] is a trap for whoever imports it), Remove works on a
+        // multi-selection, and Edit/Clone/Up/Down act on getSelectedRow() so they need exactly one.
+        Runnable updateButtons = () -> {
+            int selected = table.getSelectedRowCount();
+            boolean one = selected == 1;
+            editButton.setEnabled(one);
+            cloneButton.setEnabled(one);
+            upButton.setEnabled(one);
+            downButton.setEnabled(one);
+            removeButton.setEnabled(selected > 0);
+            exportButton.setEnabled(model.getRowCount() > 0);
+        };
+        updateButtons.run();
+        model.addTableModelListener(e -> updateButtons.run());
+        table.getSelectionModel().addListSelectionListener(e -> updateButtons.run());
+
+        JPanel buttonPanel = new JPanel(new GridLayout(8, 1, 0, 5));
         buttonPanel.add(addButton);
         buttonPanel.add(cloneButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         buttonPanel.add(upButton);
         buttonPanel.add(downButton);
+        buttonPanel.add(exportButton);
+        buttonPanel.add(importButton);
         buttonPanel.setBorder(new EmptyBorder(1, 5, 1, 1));
 
         JPanel buttonWrapper = new JPanel(new BorderLayout());
@@ -742,6 +795,20 @@ public class SettingsTab {
         panel.add(buttonWrapper, BorderLayout.EAST);
 
         return panel;
+    }
+
+    /** Selected rows as export items; the whole table when nothing is selected. */
+    private java.util.List<ConfigJson.ImportedPattern> selectedPatternsOrAll() {
+        int[] rows = patternTable == null ? new int[0] : patternTable.getSelectedRows();
+        if (rows.length == 0) {
+            return PatternIo.allPatterns(config);
+        }
+        java.util.List<ConfigJson.ImportedPattern> items = new java.util.ArrayList<>();
+        for (int row : rows) {
+            boolean isRequest = rowIsRequest(row);
+            items.add(new ConfigJson.ImportedPattern(config.getPatterns(isRequest).get(rowListIndex(row)), isRequest));
+        }
+        return items;
     }
 
     private void addMenuItem(JPopupMenu popup, String label, ActionListener action) {
@@ -1235,7 +1302,7 @@ public class SettingsTab {
         cacheCommandsCheckbox.addActionListener(
                 e -> dontCacheGarbageCheckbox.setEnabled(cacheCommandsCheckbox.isSelected()));
 
-        JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in Extra Settings", true);
+        JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in General Settings", true);
         addComponent(moreSettingsPanel, saveToLogCheckbox);
         addGrayLabel(moreSettingsPanel,
                 "Allowing you to easily search in plaintext data. Proxy data will also be logged if the next option is enabled");
@@ -1547,6 +1614,7 @@ public class SettingsTab {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
+        createConfigTransferSettings(panel);
         createRepeaterSettings(panel);
         createLogFileSettings(panel);
         createPrintTabSettings(panel, true);
@@ -1561,9 +1629,12 @@ public class SettingsTab {
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setBorder(null);
+        // Default unit increment is 1px, which makes the wheel crawl over a long settings page.
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        scrollPane.getVerticalScrollBar().setBlockIncrement(120);
 
         // Use BorderLayout so the scroll pane fills all available vertical space in the tab
-        JLabel titleLabel = new JLabel("Optionally, adjust extra settings");
+        JLabel titleLabel = new JLabel("Optionally, adjust general settings");
         titleLabel.setFont(hackFont);
         titleLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
@@ -1582,7 +1653,7 @@ public class SettingsTab {
         jlabel.setFont(hackFont);
         jlabel.setText("• Repeater");
         jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        jlabel.setBorder(new EmptyBorder(0, 0, 10, 0));
+        jlabel.setBorder(new EmptyBorder(20, 0, 10, 0));
         panel.add(jlabel);
 
         JCheckBox encryptOnModificationCheckbox = new JCheckBox("Update ciphertext ONLY when a modification is detected in the Repeater plaintext tab");
@@ -1661,6 +1732,83 @@ public class SettingsTab {
         explanation.setForeground(Color.GRAY);
         explanation.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(explanation);
+    }
+
+    /** Whole-config export/import, plus auto-load from a file maintained outside Burp. */
+    private void createConfigTransferSettings(JPanel panel) {
+        JLabel jlabel = new JLabel();
+        jlabel.setFont(hackFont);
+        jlabel.setText("• Configuration Export / Import");
+        jlabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        jlabel.setBorder(new EmptyBorder(0, 0, 10, 0));
+        panel.add(jlabel);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        buttons.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton exportAll = new JButton("Export all");
+        exportAll.addActionListener(
+                e -> PatternIo.export(uiComponent(), PatternIo.allPatterns(config), config.exportSettings()));
+        JButton importAll = new JButton("Import all");
+        importAll.addActionListener(e -> {
+            if (PatternIo.importFrom(uiComponent(), config, true)) {
+                reloadPatternTable();
+                reloadSettingsScreen();
+            }
+        });
+        buttons.add(exportAll);
+        buttons.add(importAll);
+        panel.add(buttons);
+
+        JPanel autoLoad = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        autoLoad.setAlignmentX(Component.LEFT_ALIGNMENT);
+        autoLoad.setBorder(new EmptyBorder(10, 0, 0, 0));
+
+        JCheckBox enabled = new JCheckBox("Auto-load patterns from file", config.isAutoLoadEnabled());
+        JTextField pathField = new JTextField(config.getAutoLoadPath(), 34);
+        JButton browse = new JButton("Browse");
+        JSpinner interval = new JSpinner(new SpinnerNumberModel(config.getAutoLoadIntervalSeconds(), 1, 3600, 1));
+
+        browse.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Auto-load file");
+            if (chooser.showOpenDialog(uiComponent()) == JFileChooser.APPROVE_OPTION) {
+                pathField.setText(chooser.getSelectedFile().getPath());
+            }
+        });
+
+        Runnable apply = () -> {
+            config.setAutoLoad(enabled.isSelected(), pathField.getText().trim(), (Integer) interval.getValue());
+            if (autoLoader != null) {
+                if (config.isAutoLoadEnabled()) {
+                    autoLoader.start(config.getAutoLoadPath(), config.getAutoLoadIntervalSeconds());
+                } else {
+                    autoLoader.stop();
+                }
+            }
+        };
+        enabled.addActionListener(e -> apply.run());
+        interval.addChangeListener(e -> apply.run());
+        pathField.addActionListener(e -> apply.run());
+        pathField.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                apply.run();
+            }
+        });
+
+        autoLoad.add(enabled);
+        autoLoad.add(pathField);
+        autoLoad.add(browse);
+        autoLoad.add(new JLabel("every"));
+        autoLoad.add(interval);
+        autoLoad.add(new JLabel("s"));
+        panel.add(autoLoad);
+
+        JLabel hint = new JLabel(
+                "The file's patterns replace the current ones on every change. Its settings block is ignored.");
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hint.setBorder(new EmptyBorder(4, 0, 0, 0));
+        panel.add(hint);
     }
 
     private void createCacheSettings(JPanel panel) {

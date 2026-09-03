@@ -1,9 +1,12 @@
 package reencrypt;
 
-import java.io.IOException;
 import java.util.HashMap;
+import java.util.Map;
 
 import burp.api.montoya.persistence.PersistedObject;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 /**
  * Persistent cache for decryption outputs. Maps XXH128 hash (64-bit) of
@@ -64,10 +67,12 @@ public class DecryptionCache {
     private void load() {
         try {
             String serialized = persisted.getString(CACHE_KEY);
+            cache = new HashMap<>();
             if (serialized != null && !serialized.isEmpty()) {
-                cache = Utils.deserializeMap(serialized);
-            } else {
-                cache = new HashMap<>();
+                // JSON object keys are strings; the cache is keyed by the ciphertext hash.
+                for (Map.Entry<String, JsonElement> entry : JsonParser.parseString(serialized).getAsJsonObject().entrySet()) {
+                    cache.put(Long.parseLong(entry.getKey()), entry.getValue().getAsString());
+                }
             }
         } catch (Exception e) {
             System.out.println("Failed to load decryption cache: " + e.toString());
@@ -77,9 +82,12 @@ public class DecryptionCache {
 
     private void save() {
         try {
-            String serialized = Utils.serializeMap(cache);
-            persisted.setString(CACHE_KEY, serialized);
-        } catch (IOException e) {
+            JsonObject node = new JsonObject();
+            for (Map.Entry<Long, String> entry : cache.entrySet()) {
+                node.addProperty(Long.toString(entry.getKey()), entry.getValue());
+            }
+            persisted.setString(CACHE_KEY, node.toString());
+        } catch (Exception e) {
             System.out.println("Failed to save decryption cache: " + e.toString());
         }
     }

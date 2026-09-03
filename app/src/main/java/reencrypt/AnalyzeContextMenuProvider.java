@@ -16,8 +16,8 @@ import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse.Selectio
 import reencrypt.ui.SettingsTab;
 
 /**
- * Adds "Send to Re:Encrypt" context-menu items: a selection (sent as a ciphertext string)
- * or a whole request/response (the Analyze tab then auto-locates the ciphertext).
+ * Adds "Analyze ... using Re:Encrypt" context-menu items: a selection (sent as a ciphertext string)
+ * or a whole request/response (the analyzer window then auto-locates the ciphertext).
  */
 public class AnalyzeContextMenuProvider implements ContextMenuItemsProvider {
 
@@ -36,7 +36,7 @@ public class AnalyzeContextMenuProvider implements ContextMenuItemsProvider {
             MessageEditorHttpRequestResponse m = editorOpt.get();
             Optional<Range> sel = m.selectionOffsets();
             if (sel.isPresent()) {
-                JMenuItem item = new JMenuItem("Send selection to Re:Encrypt");
+                JMenuItem item = new JMenuItem("Analyze selection using Re:Encrypt");
                 item.addActionListener(e -> {
                     String text = extractSelection(m, sel.get());
                     if (text != null && !text.isEmpty()) {
@@ -61,7 +61,7 @@ public class AnalyzeContextMenuProvider implements ContextMenuItemsProvider {
     }
 
     private JMenuItem sendRequestItem(HttpRequestResponse rr) {
-        JMenuItem item = new JMenuItem("Send request to Re:Encrypt");
+        JMenuItem item = new JMenuItem("Analyze ciphertext using Re:Encrypt");
         item.addActionListener(e -> {
             String req = rr.request() != null ? rr.request().toString() : "";
             boolean hasResp = rr.hasResponse();

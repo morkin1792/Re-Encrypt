@@ -5,14 +5,16 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Date;
 
 import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.persistence.Persistence;
 
-public class Config implements Serializable {
+public class Config {
     public static final String fileMarker = "{FILE}";
     public static final String dataMarker = "{DATA}";
 
@@ -32,14 +34,18 @@ public class Config implements Serializable {
     String intruderEncryptCommand;
     // Repeater settings
     boolean repeaterEncryptOnlyOnModification;
+    // Auto-load: keep patterns in sync with a JSON file maintained outside Burp
+    boolean autoLoadEnabled;
+    String autoLoadPath;
+    int autoLoadIntervalSeconds;
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
         this.logFilePath = getPreference("logFilePath",
                 System.getProperty("user.home") + File.separator + "reencrypt.log");
         this.logFile = new File(logFilePath);
-        this.responsePatterns = getPreference("responsePatterns", new ArrayList<CapturePattern>());
-        this.requestPatterns = getPreference("requestPatterns", new ArrayList<CapturePattern>());
+        this.responsePatterns = loadPatterns("responsePatterns");
+        this.requestPatterns = loadPatterns("requestPatterns");
         this.enableRequestPrintEditor = getPreference("enableRequestPrintEditor", true);
         this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
         this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
@@ -60,6 +66,77 @@ public class Config implements Serializable {
         this.intruderEncryptCommand = getPreference("intruderEncryptCommand", "");
         // Repeater settings
         this.repeaterEncryptOnlyOnModification = getPreference("repeaterEncryptOnlyOnModification", true);
+        // Auto-load
+        this.autoLoadEnabled = getPreference("autoLoadEnabled", false);
+        this.autoLoadPath = getPreference("autoLoadPath", "");
+        this.autoLoadIntervalSeconds = getPreference("autoLoadIntervalSeconds", 5);
+    }
+
+    public boolean isAutoLoadEnabled() {
+        return autoLoadEnabled;
+    }
+
+    public String getAutoLoadPath() {
+        return autoLoadPath;
+    }
+
+    public int getAutoLoadIntervalSeconds() {
+        return autoLoadIntervalSeconds;
+    }
+
+    public void setAutoLoad(boolean enabled, String path, int intervalSeconds) {
+        this.autoLoadEnabled = enabled;
+        this.autoLoadPath = path;
+        this.autoLoadIntervalSeconds = intervalSeconds;
+        this.persisted.setBoolean("autoLoadEnabled", enabled);
+        this.persisted.setString("autoLoadPath", path);
+        this.persisted.setInteger("autoLoadIntervalSeconds", intervalSeconds);
+    }
+
+    /** Every scalar preference, for "Export all". */
+    public Map<String, Object> exportSettings() {
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put("logFilePath", logFilePath);
+        settings.put("enableRequestPrintEditor", enableRequestPrintEditor);
+        settings.put("enableResponsePrintEditor", enableResponsePrintEditor);
+        settings.put("escapeRequestDoubleQuotes", escapeRequestDoubleQuotes);
+        settings.put("escapeResponseDoubleQuotes", escapeResponseDoubleQuotes);
+        settings.put("highlightRequestPrintEditor", highlightRequestPrintEditor);
+        settings.put("highlightResponsePrintEditor", highlightResponsePrintEditor);
+        settings.put("reqPrintEditorHighlightColor", reqPrintEditorHighlightColor.getRGB());
+        settings.put("resPrintEditorHighlightColor", resPrintEditorHighlightColor.getRGB());
+        settings.put("enableIntruderResponseDecrypt", enableIntruderResponseDecrypt);
+        settings.put("enableIntruderRequestEncrypt", enableIntruderRequestEncrypt);
+        settings.put("enableIntruderPayloadProcessor", enableIntruderPayloadProcessor);
+        settings.put("intruderEncryptCommand", intruderEncryptCommand);
+        settings.put("repeaterEncryptOnlyOnModification", repeaterEncryptOnlyOnModification);
+        return settings;
+    }
+
+    /** Apply an imported settings block. Only keys present in the map are touched. */
+    public void importSettings(Map<String, Object> settings) throws IOException {
+        for (Map.Entry<String, Object> entry : settings.entrySet()) {
+            Object v = entry.getValue();
+            switch (entry.getKey()) {
+                case "logFilePath" -> updateLogFilePath((String) v);
+                case "enableRequestPrintEditor" -> updateShowPrintEditor((Boolean) v, true);
+                case "enableResponsePrintEditor" -> updateShowPrintEditor((Boolean) v, false);
+                case "escapeRequestDoubleQuotes" -> updateShouldEscapeDoubleQuotes((Boolean) v, true);
+                case "escapeResponseDoubleQuotes" -> updateShouldEscapeDoubleQuotes((Boolean) v, false);
+                case "highlightRequestPrintEditor" -> updateHighlightPrintEditor((Boolean) v, true);
+                case "highlightResponsePrintEditor" -> updateHighlightPrintEditor((Boolean) v, false);
+                case "reqPrintEditorHighlightColor" -> updatePrintEditorHighlightColor(new Color((Integer) v, true), true);
+                case "resPrintEditorHighlightColor" -> updatePrintEditorHighlightColor(new Color((Integer) v, true), false);
+                case "enableIntruderResponseDecrypt" -> setIntruderResponseDecrypt((Boolean) v);
+                case "enableIntruderRequestEncrypt" -> setIntruderRequestEncrypt((Boolean) v);
+                case "enableIntruderPayloadProcessor" -> setIntruderPayloadProcessor((Boolean) v);
+                case "intruderEncryptCommand" -> setIntruderEncryptCommand((String) v);
+                case "repeaterEncryptOnlyOnModification" -> setRepeaterEncryptOnlyOnModification((Boolean) v);
+                default -> {
+                    // unknown key: ignore, so a newer file still imports what this build understands
+                }
+            }
+        }
     }
 
     public DecryptionCache getDecryptionCache() {
@@ -141,17 +218,22 @@ public class Config implements Serializable {
         return preference;
     }
 
-    private <T extends Serializable> ArrayList<T> getPreference(String key, ArrayList<T> defaultValue) {
+    private ArrayList<CapturePattern> loadPatterns(String key) {
+        String stored = persisted.getString(key);
+        if (stored == null || stored.isEmpty()) {
+            return new ArrayList<>();
+        }
         try {
-            String serialized = Utils.serialize(defaultValue);
-            String preference = getPreference(key, serialized);
-            return Utils.deserialize(preference);
+            return ConfigJson.listFromJson(stored);
         } catch (Exception e) {
-            // Don't fail silently: an unreadable blob means the user's saved patterns are gone, and
+            // Don't fail silently: unreadable storage means the user's saved patterns are gone, and
             // an empty table with no explanation looks like the extension lost them for no reason.
             loadErrors.add("Could not load '" + key + "' (" + e.getClass().getSimpleName()
                     + "). Saved entries were discarded and the list starts empty.");
-            return defaultValue;
+            // Overwrite the unreadable value, otherwise it fails again on every load and the error
+            // repeats forever - savePatterns() only runs when the user edits something.
+            persisted.setString(key, ConfigJson.listToJson(new ArrayList<>()));
+            return new ArrayList<>();
         }
     }
 
@@ -160,8 +242,8 @@ public class Config implements Serializable {
         return loadErrors;
     }
 
-    private <T extends Serializable> void updatePreference(String key, ArrayList<T> value) throws IOException {
-        this.persisted.setString(key, Utils.serialize(value));
+    private void updatePreference(String key, ArrayList<CapturePattern> value) {
+        this.persisted.setString(key, ConfigJson.listToJson(value));
     }
 
     private void savePatterns(boolean isRequest) {
@@ -309,9 +391,26 @@ public class Config implements Serializable {
         return generateUniqueName("Pattern", isRequest);
     }
 
-    /** Generate a name like "{base} N" sized to the current pattern list. */
+    /** Generate a name like "{base} N", skipping numbers already taken in either list. */
     public String generateUniqueName(String base, boolean isRequest) {
-        return base + " " + (getPatterns(isRequest).size() + 1);
+        for (int n = getPatterns(isRequest).size() + 1;; n++) {
+            String candidate = base + " " + n;
+            if (!hasPatternNamed(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    /** Both lists, because the settings table shows them merged and renames are manual. */
+    private boolean hasPatternNamed(String name) {
+        for (boolean isRequest : new boolean[] { true, false }) {
+            for (CapturePattern p : getPatterns(isRequest)) {
+                if (name.equals(p.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void editPattern(int index, CapturePattern newPattern, boolean isRequest) {
@@ -333,6 +432,15 @@ public class Config implements Serializable {
 
     public void removePattern(int index, boolean isRequest) {
         getPatterns(isRequest).remove(index);
+        setReloadEditors(isRequest);
+        savePatterns(isRequest);
+    }
+
+    /** Swap a whole list at once (auto-load, "Import all"). */
+    public void replaceAllPatterns(List<CapturePattern> patterns, boolean isRequest) {
+        ArrayList<CapturePattern> target = getPatterns(isRequest);
+        target.clear();
+        target.addAll(patterns);
         setReloadEditors(isRequest);
         savePatterns(isRequest);
     }
