@@ -14,7 +14,6 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import reencrypt.ConfigJson.ImportedPattern;
 
 class ConfigJsonTest {
 
@@ -80,7 +79,7 @@ class ConfigJsonTest {
         ConfigJson.ImportResult result = ConfigJson.fromFile(json);
 
         assertEquals(1, result.patterns.size());
-        assertEquals("good", result.patterns.get(0).pattern.getName());
+        assertEquals("good", result.patterns.get(0).getName());
         assertEquals(1, result.errors.size());
     }
 
@@ -97,7 +96,7 @@ class ConfigJsonTest {
 
     @Test
     void patternsOnlyFileCarriesNoSettings() {
-        String json = ConfigJson.toFile(List.of(new ImportedPattern(commandPattern(), true)), null, false);
+        String json = ConfigJson.toFile(List.of(commandPattern()), null, false);
         assertFalse(json.contains("\"settings\""));
         assertFalse(ConfigJson.fromFile(json).hasSettings);
     }
@@ -120,8 +119,8 @@ class ConfigJsonTest {
 
     @Test
     void stripSecretsBlanksSecretValuesNotSettings() {
-        String json = ConfigJson.toFile(List.of(new ImportedPattern(enginePattern(), true)), null, true);
-        CapturePattern back = ConfigJson.fromFile(json).patterns.get(0).pattern;
+        String json = ConfigJson.toFile(List.of(enginePattern()), null, true);
+        CapturePattern back = ConfigJson.fromFile(json).patterns.get(0);
 
         assertEquals("", back.getEngineParams().get("key"));
         assertEquals("GCM", back.getEngineParams().get("mode"));
@@ -133,11 +132,11 @@ class ConfigJsonTest {
     void exchangeFilesCarryNoEnabledStateAndDefaultToActive() {
         CapturePattern disabled = new CapturePattern("off", "(.*)", "", "d", "e",
                 false, false, false, false, false, PatternType.CUSTOM_REGEX, "(.*)");
-        String json = ConfigJson.toFile(List.of(new ImportedPattern(disabled, true)), null, false);
+        String json = ConfigJson.toFile(List.of(disabled), null, false);
 
         assertFalse(json.contains("\"enabled\""));
         // Auto-load has no checkbox to ask, so a pattern in a file is meant to run.
-        assertTrue(ConfigJson.fromFile(json).patterns.get(0).pattern.isEnabled());
+        assertTrue(ConfigJson.fromFile(json).patterns.get(0).isEnabled());
     }
 
     @Test
@@ -149,12 +148,12 @@ class ConfigJsonTest {
 
     @Test
     void filesAreIndentedButParseEitherWay() {
-        String json = ConfigJson.toFile(List.of(new ImportedPattern(commandPattern(), true)), null, false);
+        String json = ConfigJson.toFile(List.of(commandPattern()), null, false);
         assertTrue(json.contains("\n  \"reencrypt\""), "exchange files are written indented");
 
         // A hand-minified (or agent-generated) file must import the same way.
         String minified = json.replaceAll("\\s*\\n\\s*", "");
-        assertEquals("cmd", ConfigJson.fromFile(minified).patterns.get(0).pattern.getName());
+        assertEquals("cmd", ConfigJson.fromFile(minified).patterns.get(0).getName());
     }
 
     @Test
@@ -168,8 +167,8 @@ class ConfigJsonTest {
                 true, false, false, false, true, PatternType.CUSTOM_REGEX, "(.*)");
 
         CapturePattern back = ConfigJson
-                .fromFile(ConfigJson.toFile(List.of(new ImportedPattern(projectScoped, true)), null, false))
-                .patterns.get(0).pattern;
+                .fromFile(ConfigJson.toFile(List.of(projectScoped), null, false))
+                .patterns.get(0);
 
         // "Project In-Scope" means the receiving Burp project's scope, which a file cannot carry.
         assertFalse(back.usesProjectScope());

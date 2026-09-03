@@ -42,19 +42,9 @@ public class ConfigJson {
      */
     private static final Set<String> SECRET_PARAMS = Set.of("key", "iv", "privateKey", "jweEncryptedKey");
 
-    /** A pattern plus the list it belongs to. The list is implicit in persistence, explicit in a file. */
-    public static class ImportedPattern {
-        public final CapturePattern pattern;
-        public final boolean isRequest;
-
-        public ImportedPattern(CapturePattern pattern, boolean isRequest) {
-            this.pattern = pattern;
-            this.isRequest = isRequest;
-        }
-    }
-
     public static class ImportResult {
-        public final List<ImportedPattern> patterns = new ArrayList<>();
+        /** In file order, which is the order the user arranged them in. */
+        public final List<CapturePattern> patterns = new ArrayList<>();
         public final Map<String, Object> settings = new LinkedHashMap<>();
         /** Per-pattern problems. A bad entry is skipped; the rest of the file still imports. */
         public final List<String> errors = new ArrayList<>();
@@ -64,7 +54,7 @@ public class ConfigJson {
 
     // ---------------------------------------------------------------- persistence
 
-    /** Serialize one pattern list. Used for persistence, where the request/response split is the key. */
+    /** Serialize the pattern list for persistence. */
     public static String listToJson(List<CapturePattern> patterns) {
         JsonArray array = new JsonArray();
         for (CapturePattern pattern : patterns) {
@@ -73,7 +63,7 @@ public class ConfigJson {
         return array.toString();
     }
 
-    /** Parse one pattern list. Throws if the text is not a JSON array; skips individual bad entries. */
+    /** Parse a pattern list. Throws if the text is not a JSON array; skips individual bad entries. */
     public static ArrayList<CapturePattern> listFromJson(String json) {
         ArrayList<CapturePattern> result = new ArrayList<>();
         JsonArray array = JsonParser.parseString(json).getAsJsonArray();
@@ -94,16 +84,14 @@ public class ConfigJson {
      * @param settings     the settings block, or null for a patterns-only export
      * @param stripSecrets blank engineParams values that look like key material
      */
-    public static String toFile(List<ImportedPattern> items, Map<String, Object> settings, boolean stripSecrets) {
+    public static String toFile(List<CapturePattern> items, Map<String, Object> settings, boolean stripSecrets) {
         JsonObject root = new JsonObject();
         root.addProperty(VERSION_KEY, FORMAT_VERSION);
         root.addProperty("exported", java.time.Instant.now().toString());
 
         JsonArray array = new JsonArray();
-        for (ImportedPattern item : items) {
-            JsonObject node = toNode(item.pattern, true, stripSecrets);
-            addBoolean(node, "isRequest", item.isRequest);
-            array.add(node);
+        for (CapturePattern item : items) {
+            array.add(toNode(item, true, stripSecrets));
         }
         root.add("patterns", array);
 
@@ -137,8 +125,7 @@ public class ConfigJson {
                 JsonObject object = node.getAsJsonObject();
                 CapturePattern pattern = fromNode(object, result.errors);
                 if (pattern != null) {
-                    boolean isRequest = bool(object, "isRequest", true);
-                    result.patterns.add(new ImportedPattern(pattern, isRequest));
+                    result.patterns.add(pattern);
                 }
             }
         }
@@ -170,6 +157,7 @@ public class ConfigJson {
     private static JsonObject toNode(CapturePattern pattern, boolean forExport, boolean stripSecrets) {
         JsonObject node = new JsonObject();
         addString(node, "name", nullToEmpty(pattern.name));
+        addBoolean(node, "isRequest", pattern.isRequest);
         if (!forExport) {
             // In a file the enabled state is the importer's decision ("Enable imported patterns"),
             // so an exchange file carries no opinion about it. Persistence still needs it.
@@ -241,6 +229,7 @@ public class ConfigJson {
                 patternType,
                 string(node, "patternInput", ""));
 
+        pattern.setRequest(bool(node, "isRequest", true));
         pattern.engineId = string(node, "engineId", null);
         if (node.has("engineParams") && node.get("engineParams").isJsonObject()) {
             HashMap<String, String> params = new HashMap<>();

@@ -32,7 +32,6 @@ import reencrypt.App;
 import reencrypt.CapturePattern;
 import reencrypt.Config;
 import reencrypt.ConfigJson;
-import reencrypt.ConfigJson.ImportedPattern;
 
 /** Export/import of patterns and settings as JSON, for sharing configuration between installs. */
 public class PatternIo {
@@ -50,7 +49,7 @@ public class PatternIo {
     // ------------------------------------------------------------------ export
 
     /** Export the given patterns, or the whole config when {@code settings} is non-null. */
-    public static void export(Component parent, List<ImportedPattern> items, Map<String, Object> settings) {
+    public static void export(Component parent, List<CapturePattern> items, Map<String, Object> settings) {
         if (items.isEmpty() && settings == null) {
             JOptionPane.showMessageDialog(parent, "Nothing to export.", App.name, JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -82,32 +81,32 @@ public class PatternIo {
         }
     }
 
-    /** Every pattern in both lists, request first, matching the combined table order. */
-    public static List<ImportedPattern> allPatterns(Config config) {
-        List<ImportedPattern> items = new ArrayList<>();
-        for (CapturePattern p : config.getPatterns(true)) {
-            items.add(new ImportedPattern(p, true));
-        }
-        for (CapturePattern p : config.getPatterns(false)) {
-            items.add(new ImportedPattern(p, false));
-        }
-        return items;
+    /** Every pattern, in table order. */
+    public static List<CapturePattern> allPatterns(Config config) {
+        return new ArrayList<>(config.getPatterns());
     }
 
     // ------------------------------------------------------------------ import
 
+    /** What an import actually changed, so the caller refreshes only what needs it. */
+    public static class Outcome {
+        public boolean patternsChanged;
+        public boolean settingsChanged;
+    }
+
     /**
      * Prompt for a file, show what it contains, and apply it.
      *
-     * @param withSettings apply the file's settings block too ("Import all")
-     * @return true when anything changed, so the caller can refresh the table
+     * @param withSettings whether the file's settings block is applied by default ("Import all"). The
+     *                     dialog offers a checkbox either way when the file carries one.
      */
-    public static boolean importFrom(Component parent, Config config, boolean withSettings) {
+    public static Outcome importFrom(Component parent, Config config, boolean withSettings) {
+        Outcome outcome = new Outcome();
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import");
         chooser.setFileFilter(new FileNameExtensionFilter("JSON files", "json"));
         if (chooser.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) {
-            return false;
+            return outcome;
         }
         File file = chooser.getSelectedFile();
 
@@ -117,17 +116,22 @@ public class PatternIo {
         } catch (Exception e) {
             JOptionPane.showMessageDialog(parent, "Could not read the file:\n" + e.getMessage(), App.name,
                     JOptionPane.ERROR_MESSAGE);
-            return false;
+            return outcome;
         }
 
-        if (result.patterns.isEmpty() && !(withSettings && result.hasSettings)) {
+        if (result.patterns.isEmpty() && !result.hasSettings) {
             JOptionPane.showMessageDialog(parent, "The file contains nothing to import.", App.name,
                     JOptionPane.WARNING_MESSAGE);
-            return false;
+            return outcome;
         }
 
         List<String> collisions = collisionNames(config, result.patterns);
         JCheckBox enableImported = new JCheckBox("Enable imported patterns", true);
+        // Off by default outside "Import all": a file picked to add patterns should not quietly
+        // rewrite the whole configuration. Ticking it makes the settings match the file exactly.
+        JCheckBox importSettings = new JCheckBox(
+                "Also apply the settings in this file (anything it leaves out goes back to its default)",
+                withSettings);
         ButtonGroup group = new ButtonGroup();
         JRadioButton replace = new JRadioButton("Replace existing", true);
         JRadioButton keepBoth = new JRadioButton("Keep both (imported gets a new name)");
@@ -138,6 +142,8 @@ public class PatternIo {
                 BorderLayout.NORTH);
         panel.add(new JScrollPane(previewTable(result.patterns)), BorderLayout.CENTER);
 
+        // Everything in this column is left-aligned explicitly: BoxLayout centres a child that does
+        // not say otherwise, which pushes short rows towards the middle of a wide dialog.
         JPanel south = new JPanel();
         south.setLayout(new javax.swing.BoxLayout(south, javax.swing.BoxLayout.Y_AXIS));
         if (!collisions.isEmpty()) {
@@ -148,89 +154,96 @@ public class PatternIo {
                 group.add(b);
                 collisionPanel.add(b);
             }
-            south.add(collisionPanel);
+            addLeftAligned(south, collisionPanel);
         }
-        if (result.hasSettings && withSettings) {
-            south.add(new JLabel("Settings in this file will also be applied."));
+        if (result.hasSettings) {
+            addLeftAligned(south, importSettings);
         }
         if (!result.errors.isEmpty()) {
-            south.add(new JLabel(result.errors.size() + " entry(ies) could not be read and will be skipped."));
+            addLeftAligned(south,
+                    new JLabel(result.errors.size() + " entry(ies) could not be read and will be skipped."));
         }
-        south.add(enableImported);
+        addLeftAligned(south, enableImported);
         JLabel warning = new JLabel("Review the JSON before importing: files can contain malicious shell commands.");
         warning.setForeground(new Color(0xB0, 0x30, 0x00));
-        south.add(warning);
+        addLeftAligned(south, warning);
         panel.add(south, BorderLayout.SOUTH);
         panel.setPreferredSize(new Dimension(900, 380));
 
         int choice = JOptionPane.showConfirmDialog(parent, panel, App.name + " - import",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (choice != JOptionPane.OK_OPTION) {
-            return false;
+            return outcome;
         }
 
         Collision policy = keepBoth.isSelected() ? Collision.KEEP_BOTH : skip.isSelected() ? Collision.SKIP
                 : Collision.REPLACE;
         int applied = apply(config, result.patterns, policy, enableImported.isSelected());
+        outcome.patternsChanged = applied > 0;
 
-        if (withSettings && result.hasSettings) {
+        if (result.hasSettings && importSettings.isSelected()) {
             try {
                 config.importSettings(result.settings);
+                outcome.settingsChanged = true;
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(parent, "Patterns imported, but the settings failed:\n" + e.getMessage(),
                         App.name, JOptionPane.WARNING_MESSAGE);
             }
         }
 
-        String message = "Imported " + applied + " pattern(s).";
+        String message = "Imported " + applied + " pattern(s)." + (outcome.settingsChanged ? " Settings applied." : "");
         if (!result.errors.isEmpty()) {
             message += "\n\nSkipped:\n" + String.join("\n", result.errors);
         }
         JOptionPane.showMessageDialog(parent, message, App.name, JOptionPane.INFORMATION_MESSAGE);
-        return applied > 0 || (withSettings && result.hasSettings);
+        return outcome;
     }
 
-    private static int apply(Config config, List<ImportedPattern> items, Collision policy, boolean enable) {
+    private static void addLeftAligned(JPanel column, javax.swing.JComponent child) {
+        child.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(child);
+    }
+
+    private static int apply(Config config, List<CapturePattern> items, Collision policy, boolean enable) {
         int applied = 0;
-        for (ImportedPattern item : items) {
-            CapturePattern pattern = item.pattern;
+        for (CapturePattern pattern : items) {
             // The dialog's checkbox decides this, not the file - an exchange file carries no enabled
             // state. patchProxy is left alone: it is inert while disabled, and overwriting it would
             // discard the author's setting for whenever the user does enable the pattern.
             pattern.setEnabled(enable);
-            int existing = indexOfName(config, item.isRequest, pattern.getName());
+            int existing = indexOfName(config, pattern.getName());
             if (existing >= 0) {
                 switch (policy) {
                     case SKIP:
                         continue;
                     case REPLACE:
-                        config.editPattern(existing, pattern, item.isRequest);
+                        // In place, so a replaced pattern keeps the row it had.
+                        config.editPattern(existing, pattern);
                         applied++;
                         continue;
                     case KEEP_BOTH:
-                        pattern.setName(uniqueName(config, item.isRequest, pattern.getName()));
+                        pattern.setName(uniqueName(config, pattern.getName()));
                         break;
                 }
             }
-            config.addPattern(pattern, item.isRequest);
+            config.addPattern(pattern);
             applied++;
         }
         return applied;
     }
 
-    private static List<String> collisionNames(Config config, List<ImportedPattern> items) {
+    private static List<String> collisionNames(Config config, List<CapturePattern> items) {
         List<String> names = new ArrayList<>();
-        for (ImportedPattern item : items) {
-            if (indexOfName(config, item.isRequest, item.pattern.getName()) >= 0
-                    && !names.contains(item.pattern.getName())) {
-                names.add(item.pattern.getName());
+        for (CapturePattern item : items) {
+            if (indexOfName(config, item.getName()) >= 0 && !names.contains(item.getName())) {
+                names.add(item.getName());
             }
         }
         return names;
     }
 
-    private static int indexOfName(Config config, boolean isRequest, String name) {
-        List<CapturePattern> patterns = config.getPatterns(isRequest);
+    private static int indexOfName(Config config, String name) {
+        List<CapturePattern> patterns = config.getPatterns();
         for (int i = 0; i < patterns.size(); i++) {
             if (patterns.get(i).getName().equals(name)) {
                 return i;
@@ -239,10 +252,10 @@ public class PatternIo {
         return -1;
     }
 
-    private static String uniqueName(Config config, boolean isRequest, String base) {
+    private static String uniqueName(Config config, String base) {
         for (int n = 2;; n++) {
             String candidate = base + " (" + n + ")";
-            if (indexOfName(config, isRequest, candidate) < 0) {
+            if (indexOfName(config, candidate) < 0) {
                 return candidate;
             }
         }
@@ -252,7 +265,7 @@ public class PatternIo {
      * The last column is the point of this table: it is the only place the user sees what code an
      * imported pattern will run, or which local file it will read, before it lands.
      */
-    private static JTable previewTable(List<ImportedPattern> items) {
+    private static JTable previewTable(List<CapturePattern> items) {
         DefaultTableModel model = new DefaultTableModel(
                 new Object[] { "Name", "Location", "Target", "Commands / files it will use" }, 0) {
             @Override
@@ -260,12 +273,11 @@ public class PatternIo {
                 return false;
             }
         };
-        for (ImportedPattern item : items) {
-            CapturePattern p = item.pattern;
+        for (CapturePattern p : items) {
             String target = p.usesProjectScope() ? "Project In-Scope"
                     : (p.getURLTargetRegex() == null || p.getURLTargetRegex().isEmpty() ? "Everything"
                             : p.getURLTargetRegex());
-            model.addRow(new Object[] { p.getName(), item.isRequest ? "Request" : "Response", target,
+            model.addRow(new Object[] { p.getName(), p.isRequest() ? "Request" : "Response", target,
                     riskDisplay(p) });
         }
         JTable table = new JTable(model);
@@ -281,9 +293,30 @@ public class PatternIo {
     private static final String[] SOURCED_PARAMS = { "key", "iv", "publicKey", "privateKey" };
 
     /**
-     * What this pattern will execute or read. Plain key material is deliberately left out: it is data,
-     * not something that runs, and hiding it keeps the dangerous entries visible.
+     * What this pattern will execute or read, e.g. {@code key command: cat ~/.k}. Shared with the
+     * settings table's Configuration column so both places describe a pattern the same way.
+     *
+     * <p>
+     * Plain key material is deliberately left out: it is data, not something that runs, and printing
+     * a PEM blob per row would bury the entries that can actually do damage.
+     * </p>
      */
+    static List<String> sourcedInputs(CapturePattern p) {
+        List<String> parts = new ArrayList<>();
+        Map<String, String> params = p.getEngineParams();
+        if (!p.usesEngine() || params == null) {
+            return parts;
+        }
+        for (String name : SOURCED_PARAMS) {
+            String source = params.get(name + "Source");
+            if ("command".equals(source) || "file".equals(source)) {
+                addIfPresent(parts, name + " " + source + ": ", params.get(name));
+            }
+        }
+        return parts;
+    }
+
+    /** The same information as one cell, for the import preview. */
     private static String riskDisplay(CapturePattern p) {
         List<String> parts = new ArrayList<>();
         if (!p.usesEngine()) {
@@ -291,15 +324,7 @@ public class PatternIo {
             addIfPresent(parts, "encrypt: ", p.getEncCommand());
         } else {
             parts.add("engine: " + p.getEngineId());
-            Map<String, String> params = p.getEngineParams();
-            if (params != null) {
-                for (String name : SOURCED_PARAMS) {
-                    String source = params.get(name + "Source");
-                    if ("command".equals(source) || "file".equals(source)) {
-                        addIfPresent(parts, name + " " + source + ": ", params.get(name));
-                    }
-                }
-            }
+            parts.addAll(sourcedInputs(p));
         }
         return parts.isEmpty() ? "" : String.join("   |   ", parts);
     }

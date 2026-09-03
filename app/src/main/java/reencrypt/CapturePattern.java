@@ -18,6 +18,9 @@ public class CapturePattern {
     HashMap<String, String> engineParams;
     // Skip caching output that looks like a wrong-key result (default on)
     boolean detectGarbage = true;
+    // Which half of the exchange this pattern applies to. Patterns live in one ordered list, so this
+    // is a field rather than a separate list per direction.
+    boolean isRequest = true;
 
     public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
             boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog, boolean useProjectScope,
@@ -51,6 +54,14 @@ public class CapturePattern {
             boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog) {
         this(name, captureRegex, urlTargetRegex, decCommand, encCommand, enabled, patchProxy, useCacheSystem, saveToLog,
                 false, PatternType.CUSTOM_REGEX, captureRegex);
+    }
+
+    public boolean isRequest() {
+        return isRequest;
+    }
+
+    public void setRequest(boolean isRequest) {
+        this.isRequest = isRequest;
     }
 
     public boolean isEnabled() {
@@ -149,6 +160,7 @@ public class CapturePattern {
         cloned.engineId = this.engineId;
         cloned.engineParams = this.engineParams != null ? new HashMap<>(this.engineParams) : null;
         cloned.detectGarbage = this.detectGarbage;
+        cloned.isRequest = this.isRequest;
         return cloned;
     }
 }

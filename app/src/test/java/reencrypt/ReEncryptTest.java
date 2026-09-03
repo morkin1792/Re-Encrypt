@@ -50,12 +50,11 @@ public class ReEncryptTest {
     @Test
     void generateUniqueNameSkipsNamesAlreadyTaken() {
         // Manual renames can park "Pattern 2" on the first row, so a count-based name would collide.
-        config.addPattern(namedPattern("Pattern 2"), true);
-        assertEquals("Pattern 3", config.generateUniqueName(true));
+        config.addPattern(namedPattern("Pattern 2"));
+        assertEquals("Pattern 3", config.generateUniqueName());
 
-        // Both lists are checked: the settings table shows them merged.
-        config.addPattern(namedPattern("Pattern 3"), false);
-        assertEquals("Pattern 4", config.generateUniqueName(true));
+        config.addPattern(namedPattern("Pattern 3"));
+        assertEquals("Pattern 4", config.generateUniqueName());
     }
 
     private static CapturePattern namedPattern(String name) {

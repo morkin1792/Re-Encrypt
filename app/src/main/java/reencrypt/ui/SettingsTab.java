@@ -6,7 +6,6 @@ import javax.swing.table.TableColumnModel;
 import burp.api.montoya.MontoyaApi;
 import reencrypt.CapturePattern;
 import reencrypt.AutoLoader;
-import reencrypt.ConfigJson;
 import reencrypt.Config;
 import reencrypt.PatternType;
 import reencrypt.engine.CryptoEngine;
@@ -38,6 +37,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 
@@ -105,6 +105,8 @@ public class SettingsTab {
 
     public void setAutoLoader(AutoLoader autoLoader) {
         this.autoLoader = autoLoader;
+        // Auto-load runs on its own thread, so the table has to be told; Swing work goes to the EDT.
+        autoLoader.setOnReload(() -> SwingUtilities.invokeLater(this::reloadPatternTable));
     }
 
     /**
@@ -145,7 +147,7 @@ public class SettingsTab {
         title.setBorder(new EmptyBorder(0, 0, 8, 0));
         header.add(title);
         JLabel hint = new JLabel("Paste a ciphertext below, or right-click a request/response (or a selection) "
-                + "in any Burp tool and choose \"Send to Re:Encrypt\".");
+                + "in any Burp tool and choose \"Analyze ciphertext using Re:Encrypt\".");
         hint.setFont(hint.getFont().deriveFont(11f));
         hint.setForeground(Color.GRAY);
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -375,11 +377,11 @@ public class SettingsTab {
                     ? analyzeEditor.getCaptureRegexForPart(partIndex, partTotal, currentSplitDelimiter)
                     : analyzeEditor.getCaptureRegex();
         }
-        String seedName = config.generateUniqueName("Analyzed pattern", isRequest);
-        PatternResult r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(), seedRegex,
+        String seedName = config.generateUniqueName("Analyzed pattern");
+        CapturePattern r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(), seedRegex,
                 seedName);
         if (r != null) {
-            config.addPattern(r.pattern, r.isRequest);
+            config.addPattern(r);
             reloadPatternTable();
         }
     }
@@ -427,26 +429,18 @@ public class SettingsTab {
                 createCombinedPatternTable());
     }
 
-    private static class PatternResult {
-        final CapturePattern pattern;
-        final boolean isRequest;
 
-        PatternResult(CapturePattern pattern, boolean isRequest) {
-            this.pattern = pattern;
-            this.isRequest = isRequest;
+    /** Refresh whichever part of the UI the import actually touched. */
+    private void applyImport(PatternIo.Outcome outcome) {
+        if (outcome.patternsChanged) {
+            reloadPatternTable();
+        }
+        if (outcome.settingsChanged) {
+            reloadSettingsScreen();
         }
     }
 
-    private boolean rowIsRequest(int row) {
-        return row < config.getPatterns(true).size();
-    }
-
-    private int rowListIndex(int row) {
-        int reqCount = config.getPatterns(true).size();
-        return row < reqCount ? row : row - reqCount;
-    }
-
-    /** Reload both request and response patterns into the single combined table. */
+    /** Rows are the pattern list itself: one table, request and response patterns freely mixed. */
     private void reloadPatternTable() {
         if (patternModel == null) {
             return;
@@ -454,8 +448,11 @@ public class SettingsTab {
         suppressTableEvents = true;
         try {
             patternModel.setRowCount(0);
-            appendPatternRows(true);
-            appendPatternRows(false);
+            for (CapturePattern p : config.getPatterns()) {
+                patternModel.addRow(new Object[] { p.isEnabled(), p.getName(),
+                        p.isRequest() ? "Request" : "Response", p.getCaptureRegex(), scopeDisplay(p),
+                        p.shouldPatchProxy() ? "Yes" : "No", configDisplay(p) });
+            }
         } finally {
             suppressTableEvents = false;
         }
@@ -475,14 +472,6 @@ public class SettingsTab {
         }
         // Deferred: this runs from a listener on a component inside the panel being replaced.
         SwingUtilities.invokeLater(() -> mainTabbedPane.setComponentAt(index, createSettingsScreen()));
-    }
-
-    private void appendPatternRows(boolean isRequest) {
-        String location = isRequest ? "Request" : "Response";
-        for (CapturePattern p : config.getPatterns(isRequest)) {
-            patternModel.addRow(new Object[] { p.isEnabled(), p.getName(), location, p.getCaptureRegex(),
-                    scopeDisplay(p), p.shouldPatchProxy() ? "Yes" : "No", configDisplay(p) });
-        }
     }
 
     private String scopeDisplay(CapturePattern p) {
@@ -526,6 +515,11 @@ public class SettingsTab {
                 d.append(ep.getOrDefault("encryptionScheme", "PKCS1"));
             }
             base = d.toString();
+            // Same detail the import dialog shows: what this pattern runs or reads to get its keys.
+            List<String> sourced = PatternIo.sourcedInputs(p);
+            if (!sourced.isEmpty()) {
+                base = base + "  ·  " + String.join("  ·  ", sourced);
+            }
             warn = warningFor(true, engine, ep, null, null);
         } else {
             String dec = p.getDecCommand() == null ? "" : p.getDecCommand();
@@ -584,7 +578,20 @@ public class SettingsTab {
             }
         };
         this.patternModel = model;
-        JTable table = new JTable(model);
+        // Configuration cells can be long (commands, key sources): show the full text on hover
+        // instead of widening the column past the rest.
+        JTable table = new JTable(model) {
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent event) {
+                int row = rowAtPoint(event.getPoint());
+                int column = columnAtPoint(event.getPoint());
+                if (row < 0 || column < 0) {
+                    return null;
+                }
+                Object value = getValueAt(row, column);
+                return value instanceof String text && !text.isEmpty() ? text : null;
+            }
+        };
         this.patternTable = table;
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setFillsViewportHeight(true);
@@ -601,32 +608,25 @@ public class SettingsTab {
                 if (row < 0 || row >= model.getRowCount()) {
                     return;
                 }
-                boolean isReq = rowIsRequest(row);
-                int idx = rowListIndex(row);
-                var patterns = config.getPatterns(isReq);
-                if (idx < 0 || idx >= patterns.size()) {
+                var patterns = config.getPatterns();
+                if (row >= patterns.size()) {
                     return;
                 }
-                boolean enabled = Boolean.TRUE.equals(model.getValueAt(row, e.getColumn()));
-                CapturePattern toggled = patterns.get(idx);
-                toggled.setEnabled(enabled);
-                config.editPattern(idx, toggled, isReq);
+                CapturePattern toggled = patterns.get(row);
+                toggled.setEnabled(Boolean.TRUE.equals(model.getValueAt(row, e.getColumn())));
+                config.editPattern(row, toggled);
             }
         });
 
         ActionListener exportAction = e -> PatternIo.export(uiComponent(), selectedPatternsOrAll(), null);
-        ActionListener importAction = e -> {
-            if (PatternIo.importFrom(uiComponent(), config, false)) {
-                reloadPatternTable();
-            }
-        };
+        ActionListener importAction = e -> applyImport(PatternIo.importFrom(uiComponent(), config, false));
 
         ActionListener addAction = e -> {
-            PatternResult r = createOrEditPatternPopup(true);
+            CapturePattern r = createOrEditPatternPopup(true);
             if (r == null) {
                 return;
             }
-            config.addPattern(r.pattern, r.isRequest);
+            config.addPattern(r);
             reloadPatternTable();
         };
 
@@ -635,19 +635,13 @@ public class SettingsTab {
             if (row < 0) {
                 return;
             }
-            boolean wasRequest = rowIsRequest(row);
-            int idx = rowListIndex(row);
-            CapturePattern existing = config.getPatterns(wasRequest).get(idx);
-            PatternResult r = createOrEditPatternPopup(existing, wasRequest);
+            CapturePattern existing = config.getPatterns().get(row);
+            CapturePattern r = createOrEditPatternPopup(existing, existing.isRequest());
             if (r == null) {
                 return;
             }
-            if (r.isRequest == wasRequest) {
-                config.editPattern(idx, r.pattern, wasRequest);
-            } else {
-                config.removePattern(idx, wasRequest);
-                config.addPattern(r.pattern, r.isRequest);
-            }
+            // Flipping Request/Response is now just a field, so the pattern keeps its row either way.
+            config.editPattern(row, r);
             reloadPatternTable();
         };
 
@@ -656,28 +650,19 @@ public class SettingsTab {
             if (row < 0) {
                 return;
             }
-            config.clonePattern(rowListIndex(row), rowIsRequest(row));
+            config.clonePattern(row);
             reloadPatternTable();
         };
 
         ActionListener removeAction = e -> {
-            int[] rows = table.getSelectedRows();
-            List<Integer> reqIdx = new ArrayList<>();
-            List<Integer> respIdx = new ArrayList<>();
+            List<Integer> rows = new ArrayList<>();
+            for (int row : table.getSelectedRows()) {
+                rows.add(row);
+            }
+            // Bottom-up, so each removal leaves the rows still to go at the index we recorded.
+            rows.sort(Collections.reverseOrder());
             for (int row : rows) {
-                if (rowIsRequest(row)) {
-                    reqIdx.add(rowListIndex(row));
-                } else {
-                    respIdx.add(rowListIndex(row));
-                }
-            }
-            reqIdx.sort(Collections.reverseOrder());
-            respIdx.sort(Collections.reverseOrder());
-            for (int i : reqIdx) {
-                config.removePattern(i, true);
-            }
-            for (int i : respIdx) {
-                config.removePattern(i, false);
+                config.removePattern(row);
             }
             reloadPatternTable();
         };
@@ -714,12 +699,20 @@ public class SettingsTab {
                     }
                     JPopupMenu popup = new JPopupMenu();
                     if (r != -1) {
-                        addMenuItem(popup, "Edit", editAction);
-                        addMenuItem(popup, "Clone", cloneAction);
+                        // Edit and Clone act on one pattern; with several rows picked they would
+                        // silently touch only the first, so they are not offered at all.
+                        if (table.getSelectedRowCount() == 1) {
+                            addMenuItem(popup, "Edit", editAction);
+                            addMenuItem(popup, "Clone", cloneAction);
+                        }
                         addMenuItem(popup, "Remove", removeAction);
                         popup.addSeparator();
-                        addMenuItem(popup, "Up", upAction);
-                        addMenuItem(popup, "Down", downAction);
+                        if (canMoveSelection(table, -1)) {
+                            addMenuItem(popup, "Up", upAction);
+                        }
+                        if (canMoveSelection(table, 1)) {
+                            addMenuItem(popup, "Down", downAction);
+                        }
                         popup.addSeparator();
                         addMenuItem(popup, "Export", exportAction);
                     } else {
@@ -733,12 +726,12 @@ public class SettingsTab {
 
         TableColumnModel cm = table.getColumnModel();
         cm.getColumn(0).setPreferredWidth(60); // Enabled
-        cm.getColumn(1).setPreferredWidth(110); // Name
+        cm.getColumn(1).setPreferredWidth(140); // Name
         cm.getColumn(2).setPreferredWidth(80); // Location
         cm.getColumn(3).setPreferredWidth(170); // Capture Regex
         cm.getColumn(4).setPreferredWidth(150); // Target
         cm.getColumn(5).setPreferredWidth(80); // Patch Proxy
-        cm.getColumn(6).setPreferredWidth(600); // Configuration
+        cm.getColumn(6).setPreferredWidth(1000); // Configuration
 
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
@@ -764,14 +757,15 @@ public class SettingsTab {
 
         // Add and Import always apply. The rest need something to act on: Export needs a non-empty
         // table (a file holding "patterns": [] is a trap for whoever imports it), Remove works on a
-        // multi-selection, and Edit/Clone/Up/Down act on getSelectedRow() so they need exactly one.
+        // multi-selection, Edit/Clone act on one pattern so they need exactly one row, and Up/Down
+        // are on only while the selection has somewhere to go inside its own list.
         Runnable updateButtons = () -> {
             int selected = table.getSelectedRowCount();
             boolean one = selected == 1;
             editButton.setEnabled(one);
             cloneButton.setEnabled(one);
-            upButton.setEnabled(one);
-            downButton.setEnabled(one);
+            upButton.setEnabled(canMoveSelection(table, -1));
+            downButton.setEnabled(canMoveSelection(table, 1));
             removeButton.setEnabled(selected > 0);
             exportButton.setEnabled(model.getRowCount() > 0);
         };
@@ -781,13 +775,13 @@ public class SettingsTab {
 
         JPanel buttonPanel = new JPanel(new GridLayout(8, 1, 0, 5));
         buttonPanel.add(addButton);
+        buttonPanel.add(importButton);
         buttonPanel.add(cloneButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         buttonPanel.add(upButton);
         buttonPanel.add(downButton);
         buttonPanel.add(exportButton);
-        buttonPanel.add(importButton);
         buttonPanel.setBorder(new EmptyBorder(1, 5, 1, 1));
 
         JPanel buttonWrapper = new JPanel(new BorderLayout());
@@ -797,16 +791,15 @@ public class SettingsTab {
         return panel;
     }
 
-    /** Selected rows as export items; the whole table when nothing is selected. */
-    private java.util.List<ConfigJson.ImportedPattern> selectedPatternsOrAll() {
+    /** Selected rows as export items, in table order; the whole table when nothing is selected. */
+    private List<CapturePattern> selectedPatternsOrAll() {
         int[] rows = patternTable == null ? new int[0] : patternTable.getSelectedRows();
         if (rows.length == 0) {
             return PatternIo.allPatterns(config);
         }
-        java.util.List<ConfigJson.ImportedPattern> items = new java.util.ArrayList<>();
+        List<CapturePattern> items = new ArrayList<>();
         for (int row : rows) {
-            boolean isRequest = rowIsRequest(row);
-            items.add(new ConfigJson.ImportedPattern(config.getPatterns(isRequest).get(rowListIndex(row)), isRequest));
+            items.add(config.getPatterns().get(row));
         }
         return items;
     }
@@ -818,21 +811,77 @@ public class SettingsTab {
     }
 
     /** Move the single selected pattern up/down within its own (request/response) list. */
+    /**
+     * Move every selected pattern one row, each within its own list — a request pattern can never
+     * cross into the response half of the table. An item already at the edge, or held up by another
+     * selected item that is, stays where it is, so a selection is never reordered or compressed into
+     * itself. The moved rows keep the selection, so the buttons can be clicked repeatedly.
+     */
     private void moveSelected(JTable table, int delta) {
-        int row = table.getSelectedRow();
-        if (row < 0) {
+        int[] rows = table.getSelectedRows();
+        if (rows.length == 0) {
             return;
         }
-        boolean isReq = rowIsRequest(row);
-        int idx = rowListIndex(row);
-        int target = idx + delta;
-        if (target < 0 || target >= config.getPatterns(isReq).size()) {
-            return;
+        List<Integer> movedRows = new ArrayList<>();
+        for (int[] move : planMove(selectedIndexes(rows), delta, config.getPatterns().size())) {
+            if (move[0] != move[1]) {
+                config.movePattern(move[0], move[1]);
+            }
+            movedRows.add(move[1]);
         }
-        config.movePattern(idx, target, isReq);
         reloadPatternTable();
-        int newRow = isReq ? target : config.getPatterns(true).size() + target;
-        table.setRowSelectionInterval(newRow, newRow);
+        table.clearSelection();
+        for (int row : movedRows) {
+            table.addRowSelectionInterval(row, row);
+        }
+    }
+
+    /**
+     * Where each selected index lands when the block steps one row.
+     *
+     * @param indexes selected indexes within one list, in any order
+     * @param delta   -1 to move up, +1 to move down
+     * @param size    how many patterns that list holds
+     * @return {from, to} pairs in the order they must be applied; an index that cannot move (it is at
+     *         the edge, or blocked by another selected index that is) maps to itself
+     */
+    static List<int[]> planMove(List<Integer> indexes, int delta, int size) {
+        // Walk from the edge the items are moving towards, so each one is placed before the next
+        // needs to know where it landed.
+        List<Integer> ordered = new ArrayList<>(indexes);
+        ordered.sort(delta < 0 ? Comparator.naturalOrder() : Comparator.reverseOrder());
+
+        List<int[]> moves = new ArrayList<>();
+        int limit = delta < 0 ? 0 : size - 1;
+        for (int index : ordered) {
+            int target = delta < 0 ? Math.max(index + delta, limit) : Math.min(index + delta, limit);
+            moves.add(new int[] { index, target });
+            limit = target - delta;
+        }
+        return moves;
+    }
+
+    /** Selected rows that still exist in the pattern list. */
+    private List<Integer> selectedIndexes(int[] rows) {
+        List<Integer> indexes = new ArrayList<>();
+        int size = config.getPatterns().size();
+        for (int row : rows) {
+            if (row >= 0 && row < size) {
+                indexes.add(row);
+            }
+        }
+        return indexes;
+    }
+
+    /** Whether Up/Down would reorder anything, i.e. the selection is not already against that edge. */
+    private boolean canMoveSelection(JTable table, int delta) {
+        for (int[] move : planMove(selectedIndexes(table.getSelectedRows()), delta,
+                config.getPatterns().size())) {
+            if (move[0] != move[1]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private JPanel createIntruderScreen() {
@@ -981,11 +1030,11 @@ public class SettingsTab {
     }
 
 
-    private PatternResult createOrEditPatternPopup(boolean isRequest) {
+    private CapturePattern createOrEditPatternPopup(boolean isRequest) {
         return createOrEditPatternPopup(null, isRequest, null, null, null, null);
     }
 
-    private PatternResult createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
+    private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
         return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null);
     }
 
@@ -997,7 +1046,7 @@ public class SettingsTab {
      * @param seedName         when non-null (new pattern), the default pattern name
      * @return the built pattern + chosen location, or null if cancelled
      */
-    private PatternResult createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest,
+    private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest,
             String seedEngineId, HashMap<String, String> seedEngineParams, String seedCaptureRegex, String seedName) {
         CapturePattern pattern = null;
 
@@ -1052,12 +1101,22 @@ public class SettingsTab {
 
         patternRow.add(patternInputPanel);
         panel.add(patternRow);
-        panel.add(Box.createVerticalStrut(5));
 
-        // Hint label for capture behavior, displayed in the scope header row
+        // Hint about the capture field, on its own row directly under it: it describes that field, so
+        // sitting in the scope header below made it read as a note about the scope.
         JLabel regexHintLabel = new JLabel();
         regexHintLabel.setFont(regexHintLabel.getFont().deriveFont(11f));
         regexHintLabel.setForeground(Color.GRAY);
+        JPanel regexHintRow = new JPanel();
+        regexHintRow.setLayout(new BoxLayout(regexHintRow, BoxLayout.X_AXIS));
+        regexHintRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        regexHintRow.setBorder(new EmptyBorder(2, 0, 0, 0));
+        // Capped, otherwise the row absorbs the dialog's spare height and the hint drifts away again.
+        regexHintRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+        regexHintRow.add(Box.createHorizontalGlue());
+        regexHintRow.add(regexHintLabel);
+        panel.add(regexHintRow);
+        panel.add(Box.createVerticalStrut(5));
 
         // Update input field label based on selection
         patternTypeCombo.addActionListener(e -> {
@@ -1095,7 +1154,6 @@ public class SettingsTab {
         scopeHeaderPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         scopeHeaderPanel.add(scopeLabel);
         scopeHeaderPanel.add(Box.createHorizontalGlue());
-        scopeHeaderPanel.add(regexHintLabel);
         panel.add(scopeHeaderPanel);
 
         JPanel scopeRow = new JPanel();
@@ -1383,7 +1441,7 @@ public class SettingsTab {
             }
         } else {
             // New pattern - auto-generate name (or use a seeded name, e.g. from Analyze)
-            nameField.setText(seedName != null ? seedName : config.generateUniqueName(isRequest));
+            nameField.setText(seedName != null ? seedName : config.generateUniqueName());
             setPlaceholder(decCommand, "cat {FILE} ");
             setPlaceholder(encCommand, "cat {FILE} ");
             // Default to Parameter JSON for new patterns
@@ -1453,11 +1511,11 @@ public class SettingsTab {
 
             String name = nameField.getText();
             if (name == null || name.isEmpty()) {
-                name = config.generateUniqueName(chosenIsRequest);
+                name = config.generateUniqueName();
             }
 
             boolean duplicate = false;
-            for (CapturePattern p : config.getPatterns(chosenIsRequest)) {
+            for (CapturePattern p : config.getPatterns()) {
                 if (p.getName().equals(name)) {
                     if (existingPattern != null && p == existingPattern) {
                         continue;
@@ -1496,7 +1554,8 @@ public class SettingsTab {
                         selectedPatternType, patternInput);
             }
             pattern.setDetectGarbage(dontCacheGarbageCheckbox.isSelected());
-            return new PatternResult(pattern, chosenIsRequest);
+            pattern.setRequest(chosenIsRequest);
+            return pattern;
         }
     }
 
@@ -1749,12 +1808,7 @@ public class SettingsTab {
         exportAll.addActionListener(
                 e -> PatternIo.export(uiComponent(), PatternIo.allPatterns(config), config.exportSettings()));
         JButton importAll = new JButton("Import all");
-        importAll.addActionListener(e -> {
-            if (PatternIo.importFrom(uiComponent(), config, true)) {
-                reloadPatternTable();
-                reloadSettingsScreen();
-            }
-        });
+        importAll.addActionListener(e -> applyImport(PatternIo.importFrom(uiComponent(), config, true)));
         buttons.add(exportAll);
         buttons.add(importAll);
         panel.add(buttons);
@@ -1805,7 +1859,7 @@ public class SettingsTab {
         panel.add(autoLoad);
 
         JLabel hint = new JLabel(
-                "The file's patterns replace the current ones on every change. Its settings block is ignored.");
+                "Patterns with same name will be replaced. Settings inside this JSON will be ignored.");
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
         hint.setBorder(new EmptyBorder(4, 0, 0, 0));
         panel.add(hint);

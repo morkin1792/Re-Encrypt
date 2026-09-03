@@ -16,7 +16,7 @@ import reencrypt.ui.ResponseTab;
 import reencrypt.ui.SettingsTab;
 
 public class App implements BurpExtension {
-    public static final String name = "Re:Encrypt/v1";
+    public static final String name = "Re:Encrypt";
 
     public void initialize(MontoyaApi api) {
         api.extension().setName(name);

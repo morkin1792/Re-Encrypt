@@ -4,8 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -13,9 +11,11 @@ import java.util.function.Consumer;
  * (a script, an agent) can keep Re:Encrypt's configuration up to date while Burp runs.
  *
  * <p>
- * The file's {@code patterns} array is authoritative: the whole list is replaced on every reload,
- * otherwise a pattern deleted by the writer could never actually go away. A {@code settings} block in
- * an auto-loaded file is ignored — auto-load manages patterns only.
+ * Each pattern in the file replaces the configured one with the same name, in place, and anything new
+ * is appended. Patterns the file does not mention are left alone, so a producer can maintain a couple
+ * of entries without owning the user's whole table — the flip side is that deleting a pattern from the
+ * file does not delete it from Burp. A {@code settings} block in an auto-loaded file is ignored;
+ * auto-load manages patterns only.
  * </p>
  *
  * <p>
@@ -31,6 +31,9 @@ public class AutoLoader {
 
     private final Config config;
     private final Consumer<String> log;
+    /** Called after a reload so the settings table can show what just landed. */
+    private volatile Runnable onReload = () -> {
+    };
     private Thread thread;
     private volatile boolean running;
     private volatile long lastModified;
@@ -38,6 +41,11 @@ public class AutoLoader {
     public AutoLoader(Config config, Consumer<String> log) {
         this.config = config;
         this.log = log;
+    }
+
+    public void setOnReload(Runnable onReload) {
+        this.onReload = onReload == null ? () -> {
+        } : onReload;
     }
 
     public synchronized void start(String path, int intervalSeconds) {
@@ -95,18 +103,14 @@ public class AutoLoader {
             return;
         }
 
-        List<CapturePattern> request = new ArrayList<>();
-        List<CapturePattern> response = new ArrayList<>();
-        for (ConfigJson.ImportedPattern item : result.patterns) {
-            (item.isRequest ? request : response).add(item.pattern);
-        }
-        config.replaceAllPatterns(request, true);
-        config.replaceAllPatterns(response, false);
+        int replaced = config.mergePatternsByName(result.patterns);
 
-        String message = "auto-load: " + request.size() + " request + " + response.size() + " response pattern(s)";
+        String message = "auto-load: " + replaced + " replaced, " + (result.patterns.size() - replaced)
+                + " added";
         if (!result.errors.isEmpty()) {
             message += ", " + result.errors.size() + " skipped";
         }
         log.accept(message);
+        onReload.run();
     }
 }

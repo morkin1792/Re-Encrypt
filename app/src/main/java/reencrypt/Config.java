@@ -17,8 +17,14 @@ import burp.api.montoya.persistence.Persistence;
 public class Config {
     public static final String fileMarker = "{FILE}";
     public static final String dataMarker = "{DATA}";
+    private static final String PATTERNS_KEY = "patterns";
 
-    ArrayList<CapturePattern> requestPatterns, responsePatterns;
+    /**
+     * Every pattern, request and response together, in the order the settings table shows them.
+     * Order is the user's, so it is kept exactly as-is through save, export and import; which half of
+     * the exchange a pattern applies to is {@link CapturePattern#isRequest()}.
+     */
+    ArrayList<CapturePattern> patterns;
     /** Non-fatal problems hit while loading persisted data, reported by App once the API is available. */
     private final ArrayList<String> loadErrors = new ArrayList<>();
     File logFile;
@@ -41,11 +47,9 @@ public class Config {
 
     public Config(Persistence persistence) {
         this.persisted = persistence.extensionData();
-        this.logFilePath = getPreference("logFilePath",
-                System.getProperty("user.home") + File.separator + "reencrypt.log");
+        this.logFilePath = getPreference("logFilePath", defaultLogFilePath());
         this.logFile = new File(logFilePath);
-        this.responsePatterns = loadPatterns("responsePatterns");
-        this.requestPatterns = loadPatterns("requestPatterns");
+        this.patterns = loadPatterns();
         this.enableRequestPrintEditor = getPreference("enableRequestPrintEditor", true);
         this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
         this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
@@ -93,8 +97,53 @@ public class Config {
         this.persisted.setInteger("autoLoadIntervalSeconds", intervalSeconds);
     }
 
-    /** Every scalar preference, for "Export all". */
+    /**
+     * The factory value of every key {@link #exportSettings()} handles. Export omits whatever still
+     * matches these and import restores them for keys a file leaves out, so a config file carries
+     * only what its author actually changed.
+     *
+     * <p>
+     * {@code logFilePath}'s default depends on the machine it runs on, which is exactly why this
+     * matters: exporting it unchanged would carry one user's home directory onto someone else's box.
+     * </p>
+     */
+    public static Map<String, Object> defaultSettings() {
+        Map<String, Object> defaults = new LinkedHashMap<>();
+        defaults.put("logFilePath", defaultLogFilePath());
+        defaults.put("enableRequestPrintEditor", true);
+        defaults.put("enableResponsePrintEditor", true);
+        defaults.put("escapeRequestDoubleQuotes", false);
+        defaults.put("escapeResponseDoubleQuotes", false);
+        defaults.put("highlightRequestPrintEditor", true);
+        defaults.put("highlightResponsePrintEditor", true);
+        defaults.put("reqPrintEditorHighlightColor", Color.YELLOW.getRGB());
+        defaults.put("resPrintEditorHighlightColor", Color.YELLOW.getRGB());
+        defaults.put("enableIntruderResponseDecrypt", true);
+        defaults.put("enableIntruderRequestEncrypt", true);
+        defaults.put("enableIntruderPayloadProcessor", false);
+        defaults.put("intruderEncryptCommand", "");
+        defaults.put("repeaterEncryptOnlyOnModification", true);
+        return defaults;
+    }
+
+    static String defaultLogFilePath() {
+        return System.getProperty("user.home") + File.separator + "reencrypt.log";
+    }
+
+    /** Only the preferences that differ from {@link #defaultSettings()}, for "Export all". */
     public Map<String, Object> exportSettings() {
+        Map<String, Object> defaults = defaultSettings();
+        Map<String, Object> changed = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : currentSettings().entrySet()) {
+            if (!java.util.Objects.equals(defaults.get(entry.getKey()), entry.getValue())) {
+                changed.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return changed;
+    }
+
+    /** Every scalar preference at its current value. */
+    private Map<String, Object> currentSettings() {
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("logFilePath", logFilePath);
         settings.put("enableRequestPrintEditor", enableRequestPrintEditor);
@@ -113,10 +162,21 @@ public class Config {
         return settings;
     }
 
-    /** Apply an imported settings block. Only keys present in the map are touched. */
+    /**
+     * Apply an imported settings block. The block is authoritative: a key it omits goes back to its
+     * default, so importing a config leaves this install matching the one that exported it. Keys
+     * already at the incoming value are skipped, which keeps the import idempotent (and avoids the
+     * log file being probed when its path is not actually changing).
+     */
     public void importSettings(Map<String, Object> settings) throws IOException {
-        for (Map.Entry<String, Object> entry : settings.entrySet()) {
+        Map<String, Object> incoming = defaultSettings();
+        incoming.putAll(settings);
+        Map<String, Object> current = currentSettings();
+        for (Map.Entry<String, Object> entry : incoming.entrySet()) {
             Object v = entry.getValue();
+            if (java.util.Objects.equals(current.get(entry.getKey()), v)) {
+                continue;
+            }
             switch (entry.getKey()) {
                 case "logFilePath" -> updateLogFilePath((String) v);
                 case "enableRequestPrintEditor" -> updateShowPrintEditor((Boolean) v, true);
@@ -183,10 +243,10 @@ public class Config {
 
     public CapturePattern[] getActivePatterns(boolean isRequest) {
         ArrayList<CapturePattern> result = new ArrayList<>();
-        var patterns = isRequest ? requestPatterns : responsePatterns;
         for (var pattern : patterns) {
-            if (pattern.isEnabled())
+            if (pattern.isRequest() == isRequest && pattern.isEnabled()) {
                 result.add(pattern);
+            }
         }
         return result.toArray(new CapturePattern[0]);
     }
@@ -218,9 +278,12 @@ public class Config {
         return preference;
     }
 
-    private ArrayList<CapturePattern> loadPatterns(String key) {
-        String stored = persisted.getString(key);
-        if (stored == null || stored.isEmpty()) {
+    private ArrayList<CapturePattern> loadPatterns() {
+        String stored = persisted.getString(PATTERNS_KEY);
+        if (stored == null) {
+            return migrateSplitLists();
+        }
+        if (stored.isEmpty()) {
             return new ArrayList<>();
         }
         try {
@@ -228,13 +291,40 @@ public class Config {
         } catch (Exception e) {
             // Don't fail silently: unreadable storage means the user's saved patterns are gone, and
             // an empty table with no explanation looks like the extension lost them for no reason.
-            loadErrors.add("Could not load '" + key + "' (" + e.getClass().getSimpleName()
+            loadErrors.add("Could not load '" + PATTERNS_KEY + "' (" + e.getClass().getSimpleName()
                     + "). Saved entries were discarded and the list starts empty.");
             // Overwrite the unreadable value, otherwise it fails again on every load and the error
             // repeats forever - savePatterns() only runs when the user edits something.
-            persisted.setString(key, ConfigJson.listToJson(new ArrayList<>()));
+            persisted.setString(PATTERNS_KEY, ConfigJson.listToJson(new ArrayList<>()));
             return new ArrayList<>();
         }
+    }
+
+    /**
+     * Read the pre-2.0 storage, which kept request and response patterns under separate keys, and
+     * fold it into the single ordered list (requests first, as the old table showed them). Runs once:
+     * the merged list is written under the new key and the old ones are dropped.
+     */
+    private ArrayList<CapturePattern> migrateSplitLists() {
+        ArrayList<CapturePattern> merged = new ArrayList<>();
+        for (String key : new String[] { "requestPatterns", "responsePatterns" }) {
+            String stored = persisted.getString(key);
+            if (stored == null || stored.isEmpty()) {
+                continue;
+            }
+            try {
+                for (CapturePattern pattern : ConfigJson.listFromJson(stored)) {
+                    pattern.setRequest(key.startsWith("request"));
+                    merged.add(pattern);
+                }
+            } catch (Exception e) {
+                loadErrors.add("Could not load '" + key + "' (" + e.getClass().getSimpleName()
+                        + "). Saved entries were discarded and the list starts empty.");
+            }
+            persisted.deleteString(key);
+        }
+        persisted.setString(PATTERNS_KEY, ConfigJson.listToJson(merged));
+        return merged;
     }
 
     /** Problems hit while loading persisted data. Empty on a clean start. */
@@ -246,13 +336,9 @@ public class Config {
         this.persisted.setString(key, ConfigJson.listToJson(value));
     }
 
-    private void savePatterns(boolean isRequest) {
+    private void savePatterns() {
         try {
-            if (isRequest) {
-                updatePreference("requestPatterns", requestPatterns);
-            } else {
-                updatePreference("responsePatterns", responsePatterns);
-            }
+            updatePreference(PATTERNS_KEY, patterns);
         } catch (Exception e) {
             System.out.println("Failed to save patterns: " + e.getMessage());
         }
@@ -314,12 +400,13 @@ public class Config {
         return isRequest ? reqPrintEditorHighlightColor : resPrintEditorHighlightColor;
     }
 
-    void setReloadEditors(boolean isRequest) {
-        if (isRequest) {
-            this.reloadRequestEditors = true;
-        } else {
-            this.reloadResponseEditors = true;
-        }
+    /**
+     * One list means an edit can change either direction (a pattern can be flipped, or reordered past
+     * one of the other kind), so both sets of editors are told to rebuild.
+     */
+    void setReloadEditors() {
+        this.reloadRequestEditors = true;
+        this.reloadResponseEditors = true;
     }
 
     // Intruder settings getters and setters
@@ -369,31 +456,31 @@ public class Config {
         this.persisted.setBoolean("repeaterEncryptOnlyOnModification", enabled);
     }
 
-    public void addPattern(CapturePattern newPattern, boolean isRequest) {
-        getPatterns(isRequest).add(newPattern);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
+    public void addPattern(CapturePattern newPattern) {
+        patterns.add(newPattern);
+        setReloadEditors();
+        savePatterns();
     }
 
-    public void clonePattern(int index, boolean isRequest) {
-        CapturePattern pattern = getPatterns(isRequest).get(index);
-        CapturePattern newPattern = pattern.clone();
-        newPattern.setName(generateUniqueName(isRequest));
-        addPattern(newPattern, isRequest);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
+    public void clonePattern(int index) {
+        CapturePattern newPattern = patterns.get(index).clone();
+        newPattern.setName(generateUniqueName());
+        // Next to the original rather than at the end: a clone is an edit of what the user is looking at.
+        patterns.add(index + 1, newPattern);
+        setReloadEditors();
+        savePatterns();
     }
 
     /**
      * Generate a unique name for a new pattern like "Pattern N".
      */
-    public String generateUniqueName(boolean isRequest) {
-        return generateUniqueName("Pattern", isRequest);
+    public String generateUniqueName() {
+        return generateUniqueName("Pattern");
     }
 
-    /** Generate a name like "{base} N", skipping numbers already taken in either list. */
-    public String generateUniqueName(String base, boolean isRequest) {
-        for (int n = getPatterns(isRequest).size() + 1;; n++) {
+    /** Generate a name like "{base} N", skipping numbers already taken. */
+    public String generateUniqueName(String base) {
+        for (int n = patterns.size() + 1;; n++) {
             String candidate = base + " " + n;
             if (!hasPatternNamed(candidate)) {
                 return candidate;
@@ -401,56 +488,85 @@ public class Config {
         }
     }
 
-    /** Both lists, because the settings table shows them merged and renames are manual. */
     private boolean hasPatternNamed(String name) {
-        for (boolean isRequest : new boolean[] { true, false }) {
-            for (CapturePattern p : getPatterns(isRequest)) {
-                if (name.equals(p.getName())) {
-                    return true;
-                }
+        return indexOfName(name) >= 0;
+    }
+
+    public void editPattern(int index, CapturePattern newPattern) {
+        patterns.set(index, newPattern);
+        setReloadEditors();
+        savePatterns();
+    }
+
+    public void movePattern(int currentIndex, int newIndex) {
+        if (newIndex < 0 || newIndex > patterns.size() - 1) {
+            return;
+        }
+        patterns.add(newIndex, patterns.remove(currentIndex));
+        setReloadEditors();
+        savePatterns();
+    }
+
+    public void removePattern(int index) {
+        patterns.remove(index);
+        setReloadEditors();
+        savePatterns();
+    }
+
+    /** Swap the whole list at once. */
+    public void replaceAllPatterns(List<CapturePattern> newPatterns) {
+        patterns.clear();
+        patterns.addAll(newPatterns);
+        setReloadEditors();
+        savePatterns();
+    }
+
+    /**
+     * Take in a set of patterns by name: a name that already exists is replaced where it sits, the
+     * rest are appended. Patterns not named in {@code incoming} are untouched.
+     *
+     * @return how many existing patterns were replaced
+     */
+    public int mergePatternsByName(List<CapturePattern> incoming) {
+        int replaced = 0;
+        for (CapturePattern pattern : incoming) {
+            int existing = indexOfName(pattern.getName());
+            if (existing >= 0) {
+                patterns.set(existing, pattern);
+                replaced++;
+            } else {
+                patterns.add(pattern);
             }
         }
-        return false;
+        setReloadEditors();
+        savePatterns();
+        return replaced;
     }
 
-    public void editPattern(int index, CapturePattern newPattern, boolean isRequest) {
-        getPatterns(isRequest).set(index, newPattern);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
-    }
-
-    public void movePattern(int currentIndex, int newIndex, boolean isRequest) {
-        if (newIndex < 0 || newIndex > getPatterns(isRequest).size() - 1)
-            return;
-        CapturePattern newValue = getPatterns(isRequest).get(newIndex);
-        CapturePattern currentValue = getPatterns(isRequest).get(currentIndex);
-        editPattern(newIndex, currentValue, isRequest);
-        editPattern(currentIndex, newValue, isRequest);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
-    }
-
-    public void removePattern(int index, boolean isRequest) {
-        getPatterns(isRequest).remove(index);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
-    }
-
-    /** Swap a whole list at once (auto-load, "Import all"). */
-    public void replaceAllPatterns(List<CapturePattern> patterns, boolean isRequest) {
-        ArrayList<CapturePattern> target = getPatterns(isRequest);
-        target.clear();
-        target.addAll(patterns);
-        setReloadEditors(isRequest);
-        savePatterns(isRequest);
-    }
-
-    public ArrayList<CapturePattern> getPatterns(boolean isRequest) {
-        var patterns = requestPatterns;
-        if (!isRequest) {
-            patterns = responsePatterns;
+    /** Index of the pattern with this name, or -1. Names are unique across the whole list. */
+    public int indexOfName(String name) {
+        for (int i = 0; i < patterns.size(); i++) {
+            if (patterns.get(i).getName().equals(name)) {
+                return i;
+            }
         }
+        return -1;
+    }
+
+    /** Every pattern, in the user's order. Live list: edits go through the methods above. */
+    public ArrayList<CapturePattern> getPatterns() {
         return patterns;
+    }
+
+    /** Only the patterns for one direction, keeping their relative order. */
+    public ArrayList<CapturePattern> getPatterns(boolean isRequest) {
+        ArrayList<CapturePattern> result = new ArrayList<>();
+        for (CapturePattern pattern : patterns) {
+            if (pattern.isRequest() == isRequest) {
+                result.add(pattern);
+            }
+        }
+        return result;
     }
 
     public boolean checkReloadEditors(boolean isRequest) {

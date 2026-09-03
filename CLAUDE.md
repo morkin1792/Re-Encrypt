@@ -49,7 +49,14 @@ Requires Java 21+ and Burp Suite v2024.x+ (target Montoya API `2025.8`).
 
 ### Pattern model (`CapturePattern`)
 
-The unit of configuration, stored in two lists (request / response) on `Config`. A pattern operates in one of two **mutually exclusive** modes, switched by `usesEngine()` (i.e. `engineId != null`):
+The unit of configuration. `Config` keeps **one ordered list** (`Config.getPatterns()`) holding both
+directions — `CapturePattern.isRequest()` says which half of the exchange a pattern applies to — so the
+settings table is a single list the user can reorder freely, request and response rows mixed. Runtime
+surfaces take the filtered views `getPatterns(boolean)` / `getActivePatterns(boolean)`, which preserve
+relative order, so matching behaviour is unchanged by where a pattern sits among the other kind.
+Every mutator is indexed into that one list (`addPattern`, `editPattern(index, …)`, `removePattern`,
+`movePattern`, `clonePattern`). A pattern operates in one of two **mutually exclusive** modes, switched
+by `usesEngine()` (i.e. `engineId != null`):
 
 1. **Custom command mode** — runs `decCommand` / `encCommand` through `ShellCommand`.
 2. **Engine mode** — uses a built-in `CryptoEngine` (`engineId` + flat `engineParams` map).
@@ -61,17 +68,28 @@ The unit of configuration, stored in two lists (request / response) on `Config`.
 One JSON format serves both Re:Encrypt's own persistence and the export/import files, so the exchange
 code is exercised on every save instead of only when someone clicks Export.
 
-- `ConfigJson.listToJson` / `listFromJson` — one pattern list, used for persistence (the request/response
-  split is the storage key, so no `isRequest` field is written).
+- `ConfigJson.listToJson` / `listFromJson` — the pattern list, used for persistence under the single
+  `patterns` key. Pre-2.0 installs stored `requestPatterns` / `responsePatterns` separately;
+  `Config.migrateSplitLists()` folds those into one list (requests first) on first load and deletes the
+  old keys.
 - `ConfigJson.toFile` / `fromFile` — exchange files: `{"reencrypt":1,"exported":…,"patterns":[…],"settings":{…}}`.
-  Each pattern carries `isRequest` but **no `enabled`**: whether a pattern runs is the importer's
+  Pattern order in the file is the table order and is preserved on import. Each pattern carries
+  `isRequest` but **no `enabled`**: whether a pattern runs is the importer's
   call (the import dialog's checkbox), and `fromNode` defaults it to true so auto-load — which has no
   prompt — takes effect. `settings` is omitted by a patterns-only export. Unknown keys are
   ignored; a bad entry is skipped and reported in `ImportResult.errors` rather than failing the file.
+- **Settings carry only what changed.** `Config.defaultSettings()` is the factory value of every
+  exported key; `exportSettings()` drops anything still equal to it and `importSettings()` restores
+  the default for any key the file omits, so a `settings` block is authoritative and an untouched
+  install exports none of them (notably not the machine-specific `logFilePath`). `ConfigSettingsTest`
+  pins that, and doubles as the parity check between `defaultSettings()` and the constructor's
+  fallbacks. Patterns get no such treatment — every field is written explicitly.
 - **Exporting downgrades "Project In-Scope" to "Everything"** — that scope resolves against the receiving
   Burp project's Target scope, which a file cannot carry.
-- `ui.PatternIo` — the file choosers, the import review dialog (which shows each pattern's decrypt
-  command, the only place the user sees what code an import will run) and the collision policy.
+- `ui.PatternIo` — the file choosers, the import review dialog (the only place the user sees what code
+  an import will run) and the collision policy. `PatternIo.sourcedInputs()` renders the commands and
+  file paths a pattern uses to fetch key material; the settings table's Configuration column shares it
+  so both places describe a pattern the same way.
 - `AutoLoader` — optional mtime poll on one file, replacing the whole pattern set on each change so a
   producer can delete patterns. Its `settings` block is ignored.
 
