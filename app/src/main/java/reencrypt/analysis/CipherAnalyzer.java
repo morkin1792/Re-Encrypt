@@ -519,7 +519,11 @@ public class CipherAnalyzer {
         sb.append("You are helping configure the Burp Suite extension \"Re:Encrypt\" to decrypt a captured ciphertext.\n\n");
         sb.append("Ciphertext:\n").append(ct).append("\n\n");
         sb.append("Observed locally: outer encoding=").append(r.outerEncoding).append(", raw length=")
-                .append(r.rawLength).append(", decoded length=").append(r.decodedLength).append(".\n\n");
+                .append(r.rawLength);
+        if (r.decodedLength >= 0) {
+            sb.append(", decoded length=").append(r.decodedLength);
+        }
+        sb.append(".\n\n");
         sb.append("Answer with a Re:Encrypt pattern file the user can import directly via\n");
         sb.append("Capturing + Processing > Import (or General Settings > Import all).\n\n");
         sb.append("Format, shown with a common case (AES-256-CBC, IV prefixed to the ciphertext, Base64):\n");
@@ -541,6 +545,9 @@ public class CipherAnalyzer {
         sb.append("    }\n");
         sb.append("  }]\n");
         sb.append("}\n\n");
+        sb.append("Any field you leave out takes its default, so a pattern only needs what matters. ");
+        sb.append("urlTargetRegex is matched against the whole URL; empty means every request. Give each ");
+        sb.append("pattern a distinct name - a name that already exists replaces that pattern.\n\n");
         sb.append("Allowed values: engineId aes | rsa | null (null = custom shell commands in ");
         sb.append("\"decCommand\"/\"encCommand\" using the {DATA} or {FILE} placeholder). ");
         sb.append("patternType HEADER | PARAMETER_URL_ENCODED | PARAMETER_JSON | WHOLE_BODY | CUSTOM_REGEX ");
@@ -552,7 +559,12 @@ public class CipherAnalyzer {
         sb.append("AES: mode CBC|ECB|GCM|CTR|CFB|OFB, padding PKCS5Padding|NoPadding|ISO10126Padding, ");
         sb.append("ciphertextStructure raw|iv_ct|iv_ct_tag|openssl|jwe, encoding Base64|Hex|Raw, ");
         sb.append("keyFormat/ivFormat UTF-8|Hex|Base64, keyDerivation evp_md5|pbkdf2_sha256. ");
-        sb.append("RSA: encryptionScheme PKCS1|OAEP|Raw, oaepDigest SHA-1|SHA-256|SHA-384|SHA-512.\n\n");
+        sb.append("RSA: encryptionScheme PKCS1|OAEP|Raw, oaepDigest SHA-1|SHA-256|SHA-384|SHA-512, with the ");
+        sb.append("PEM in \"publicKey\"/\"privateKey\".\n");
+        sb.append("Key material does not have to be pasted in: \"keySource\" (and likewise ivSource, ");
+        sb.append("publicKeySource, privateKeySource) may be text (the default, the value itself), file (the ");
+        sb.append("value is a path) or command (the value is a shell command whose output is the key, run for ");
+        sb.append("every message - use it when the key is derived per session).\n\n");
         sb.append("Full field reference: https://github.com/morkin1792/Re-Encrypt\n\n");
         sb.append("Give the 1-3 most likely schemes, best first, each as one pattern in the array, and say ");
         sb.append("what key material the user must fill in. If it is a 3-part JWT, note that it is signed ");
