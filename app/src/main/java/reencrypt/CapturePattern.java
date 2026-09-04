@@ -6,6 +6,18 @@ import java.util.regex.Pattern;
 import burp.api.montoya.MontoyaApi;
 
 public class CapturePattern {
+    /**
+     * What a field is worth when nobody said otherwise: the Add Pattern dialog starts here, and an
+     * imported file that omits the field lands here too, so the two can never drift apart.
+     */
+    public static final boolean DEFAULT_ENABLED = true;
+    public static final boolean DEFAULT_PATCH_PROXY = false;
+    public static final boolean DEFAULT_USE_CACHE_SYSTEM = true;
+    public static final boolean DEFAULT_SAVE_TO_LOG = true;
+    public static final boolean DEFAULT_DETECT_GARBAGE = true;
+    public static final boolean DEFAULT_USE_PROJECT_SCOPE = false;
+    public static final boolean DEFAULT_IS_REQUEST = true;
+
     boolean enabled, patchProxy, useCacheSystem, saveToLog, useProjectScope;
     String name;
     String captureRegex;
@@ -17,10 +29,10 @@ public class CapturePattern {
     String engineId; // null | "aes" | "rsa"
     HashMap<String, String> engineParams;
     // Skip caching output that looks like a wrong-key result (default on)
-    boolean detectGarbage = true;
+    boolean detectGarbage = DEFAULT_DETECT_GARBAGE;
     // Which half of the exchange this pattern applies to. Patterns live in one ordered list, so this
     // is a field rather than a separate list per direction.
-    boolean isRequest = true;
+    boolean isRequest = DEFAULT_IS_REQUEST;
 
     public CapturePattern(String name, String captureRegex, String urlTargetRegex, String decCommand, String encCommand,
             boolean enabled, boolean patchProxy, boolean useCacheSystem, boolean saveToLog, boolean useProjectScope,

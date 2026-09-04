@@ -3,8 +3,8 @@ package reencrypt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
-import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.persistence.Persistence;
 
 /** One ordered list holding both directions: storage, migration and reordering. */
@@ -22,29 +21,7 @@ class ConfigPatternsTest {
     private final Map<String, Object> store = new HashMap<>();
 
     private Persistence persistence() {
-        PersistedObject persisted = (PersistedObject) Proxy.newProxyInstance(
-                ConfigPatternsTest.class.getClassLoader(), new Class[] { PersistedObject.class },
-                (proxy, method, args) -> {
-                    String name = method.getName();
-                    if (name.equals("toString")) {
-                        return "fakePersistedObject";
-                    }
-                    if (name.startsWith("delete") && args != null && args.length == 1) {
-                        store.remove(args[0]);
-                        return null;
-                    }
-                    if (name.startsWith("get") && args != null && args.length == 1) {
-                        return store.get(args[0]);
-                    }
-                    if (name.startsWith("set") && args != null && args.length == 2) {
-                        store.put((String) args[0], args[1]);
-                        return null;
-                    }
-                    return null;
-                });
-        return (Persistence) Proxy.newProxyInstance(ConfigPatternsTest.class.getClassLoader(),
-                new Class[] { Persistence.class },
-                (proxy, method, args) -> method.getName().equals("extensionData") ? persisted : null);
+        return FakePersistence.create(store);
     }
 
     private static CapturePattern pattern(String name, boolean isRequest) {
@@ -118,10 +95,34 @@ class ConfigPatternsTest {
         config.addPattern(pattern("x", false));
 
         // "x" comes back as a request pattern; "new" is unknown; "a" is not mentioned at all.
-        int replaced = config.mergePatternsByName(List.of(pattern("x", true), pattern("new", true)));
+        Config.MergeResult merge = config.mergePatternsByName(List.of(pattern("x", true), pattern("new", true)));
 
-        assertEquals(1, replaced);
+        assertEquals(1, merge.replaced);
+        assertEquals(1, merge.added);
+        assertTrue(merge.changed);
         assertEquals("a(req) x(req) new(req)", names(config.getPatterns()));
+    }
+
+    @Test
+    void reapplyingTheSameFileChangesNothing() {
+        Config config = new Config(persistence());
+        config.addPattern(pattern("a", true));
+
+        // Auto-load applies the file on every tick; an unchanged file must not churn the table.
+        assertFalse(config.mergePatternsByName(List.of(pattern("a", true))).changed);
+    }
+
+    @Test
+    void aPatternDeletedInBurpComesBackOnTheNextTick() {
+        Config config = new Config(persistence());
+        config.addPattern(pattern("a", true));
+        config.removePattern(0);
+
+        Config.MergeResult merge = config.mergePatternsByName(List.of(pattern("a", true)));
+
+        assertTrue(merge.changed);
+        assertEquals(1, merge.added);
+        assertEquals("a(req)", names(config.getPatterns()));
     }
 
     @Test

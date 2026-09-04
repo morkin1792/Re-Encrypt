@@ -40,7 +40,7 @@ public class AnalyzeContextMenuProvider implements ContextMenuItemsProvider {
                 item.addActionListener(e -> {
                     String text = extractSelection(m, sel.get());
                     if (text != null && !text.isEmpty()) {
-                        settingsTab.analyzePasted(text);
+                        settingsTab.analyzePasted(text, urlOf(m.requestResponse()));
                     }
                 });
                 items.add(item);
@@ -66,9 +66,18 @@ public class AnalyzeContextMenuProvider implements ContextMenuItemsProvider {
             String req = rr.request() != null ? rr.request().toString() : "";
             boolean hasResp = rr.hasResponse();
             String resp = hasResp ? rr.response().toString() : null;
-            settingsTab.analyzeRequestResponse(req, hasResp, resp);
+            settingsTab.analyzeRequestResponse(req, hasResp, resp, urlOf(rr));
         });
         return item;
+    }
+
+    /** The URL the message came from, so a pattern created from it can pre-fill its target scope. */
+    private static String urlOf(HttpRequestResponse rr) {
+        try {
+            return rr != null && rr.request() != null ? rr.request().url() : null;
+        } catch (Exception e) {
+            return null; // a request with no service has no URL
+        }
     }
 
     private String extractSelection(MessageEditorHttpRequestResponse m, Range range) {

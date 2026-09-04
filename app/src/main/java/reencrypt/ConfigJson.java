@@ -34,7 +34,8 @@ public class ConfigJson {
      * stays compact - it is a blob in Burp's project file that nobody reads. Parsing does not care
      * either way, so a hand-minified file imports fine.
      */
-    private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+    private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping()
+            .serializeNulls().create();
     /**
      * engineParams entries blanked when exporting with "strip secrets". Matched by exact name: a
      * substring match would also blank keyFormat/ivFormat/keySource, which are settings rather than
@@ -185,20 +186,21 @@ public class ConfigJson {
             addString(node, "urlTargetRegex", nullToEmpty(pattern.urlTargetRegex));
         }
 
-        if (pattern.engineId != null) {
-            addString(node, "engineId", pattern.engineId);
-        }
+        // Patterns write every field, defaults included - null engineId (custom command mode) and an
+        // empty engineParams among them. A pattern decides what runs against live traffic, so a file
+        // says outright what it configures instead of leaving the reader to infer it from absence.
+        addString(node, "engineId", pattern.engineId);
+        JsonObject params = new JsonObject();
         if (pattern.engineParams != null) {
-            JsonObject params = new JsonObject();
             for (Map.Entry<String, String> entry : pattern.engineParams.entrySet()) {
                 boolean secret = stripSecrets && SECRET_PARAMS.contains(entry.getKey());
                 addString(params, entry.getKey(), secret ? "" : nullToEmpty(entry.getValue()));
             }
-            node.add("engineParams", params);
             if (stripSecrets) {
                 addBoolean(node, "secretsStripped", true);
             }
         }
+        node.add("engineParams", params);
         return node;
     }
 
@@ -221,15 +223,15 @@ public class ConfigJson {
                 string(node, "encCommand", ""),
                 // Absent in exchange files: the import dialog overrides this with its checkbox, and
                 // auto-load has no prompt, so a file dropped in by a producer takes effect.
-                bool(node, "enabled", true),
-                bool(node, "patchProxy", false),
-                bool(node, "useCacheSystem", false),
-                bool(node, "saveToLog", false),
-                bool(node, "useProjectScope", false),
+                bool(node, "enabled", CapturePattern.DEFAULT_ENABLED),
+                bool(node, "patchProxy", CapturePattern.DEFAULT_PATCH_PROXY),
+                bool(node, "useCacheSystem", CapturePattern.DEFAULT_USE_CACHE_SYSTEM),
+                bool(node, "saveToLog", CapturePattern.DEFAULT_SAVE_TO_LOG),
+                bool(node, "useProjectScope", CapturePattern.DEFAULT_USE_PROJECT_SCOPE),
                 patternType,
                 string(node, "patternInput", ""));
 
-        pattern.setRequest(bool(node, "isRequest", true));
+        pattern.setRequest(bool(node, "isRequest", CapturePattern.DEFAULT_IS_REQUEST));
         pattern.engineId = string(node, "engineId", null);
         if (node.has("engineParams") && node.get("engineParams").isJsonObject()) {
             HashMap<String, String> params = new HashMap<>();
@@ -238,7 +240,7 @@ public class ConfigJson {
             }
             pattern.engineParams = params;
         }
-        pattern.detectGarbage = bool(node, "detectGarbage", true);
+        pattern.detectGarbage = bool(node, "detectGarbage", CapturePattern.DEFAULT_DETECT_GARBAGE);
         return pattern;
     }
 

@@ -50,6 +50,9 @@ public class App implements BurpExtension {
 
         AutoLoader autoLoader = new AutoLoader(config, api.logging()::logToOutput);
         settingsTab.setAutoLoader(autoLoader);
+        // Without this, every extension reload leaves the previous watcher polling the same file with
+        // a stale Config - it keeps writing that stale pattern list back to the project's storage.
+        api.extension().registerUnloadingHandler(autoLoader::stop);
         if (config.isAutoLoadEnabled()) {
             autoLoader.start(config.getAutoLoadPath(), config.getAutoLoadIntervalSeconds());
         }

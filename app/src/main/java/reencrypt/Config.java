@@ -123,6 +123,9 @@ public class Config {
         defaults.put("enableIntruderPayloadProcessor", false);
         defaults.put("intruderEncryptCommand", "");
         defaults.put("repeaterEncryptOnlyOnModification", true);
+        defaults.put("autoLoadEnabled", false);
+        defaults.put("autoLoadPath", "");
+        defaults.put("autoLoadIntervalSeconds", 5);
         return defaults;
     }
 
@@ -159,6 +162,9 @@ public class Config {
         settings.put("enableIntruderPayloadProcessor", enableIntruderPayloadProcessor);
         settings.put("intruderEncryptCommand", intruderEncryptCommand);
         settings.put("repeaterEncryptOnlyOnModification", repeaterEncryptOnlyOnModification);
+        settings.put("autoLoadEnabled", autoLoadEnabled);
+        settings.put("autoLoadPath", autoLoadPath);
+        settings.put("autoLoadIntervalSeconds", autoLoadIntervalSeconds);
         return settings;
     }
 
@@ -192,6 +198,11 @@ public class Config {
                 case "enableIntruderPayloadProcessor" -> setIntruderPayloadProcessor((Boolean) v);
                 case "intruderEncryptCommand" -> setIntruderEncryptCommand((String) v);
                 case "repeaterEncryptOnlyOnModification" -> setRepeaterEncryptOnlyOnModification((Boolean) v);
+                // The three auto-load keys arrive separately; setAutoLoad takes all three, so each one
+                // re-applies the other two from their current (already updated) values.
+                case "autoLoadEnabled" -> setAutoLoad((Boolean) v, autoLoadPath, autoLoadIntervalSeconds);
+                case "autoLoadPath" -> setAutoLoad(autoLoadEnabled, (String) v, autoLoadIntervalSeconds);
+                case "autoLoadIntervalSeconds" -> setAutoLoad(autoLoadEnabled, autoLoadPath, (Integer) v);
                 default -> {
                     // unknown key: ignore, so a newer file still imports what this build understands
                 }
@@ -521,13 +532,30 @@ public class Config {
         savePatterns();
     }
 
+    /** What a merge actually did, so a caller polling on a timer can stay quiet when nothing moved. */
+    public static class MergeResult {
+        public final int replaced;
+        public final int added;
+        public final boolean changed;
+
+        MergeResult(int replaced, int added, boolean changed) {
+            this.replaced = replaced;
+            this.added = added;
+            this.changed = changed;
+        }
+    }
+
     /**
      * Take in a set of patterns by name: a name that already exists is replaced where it sits, the
      * rest are appended. Patterns not named in {@code incoming} are untouched.
      *
-     * @return how many existing patterns were replaced
+     * <p>
+     * Incoming patterns are taken as they are, enabled state included; the caller decides what that
+     * should be (auto-load forces it on).
+     * </p>
      */
-    public int mergePatternsByName(List<CapturePattern> incoming) {
+    public MergeResult mergePatternsByName(List<CapturePattern> incoming) {
+        String before = ConfigJson.listToJson(patterns);
         int replaced = 0;
         for (CapturePattern pattern : incoming) {
             int existing = indexOfName(pattern.getName());
@@ -538,9 +566,22 @@ public class Config {
                 patterns.add(pattern);
             }
         }
-        setReloadEditors();
-        savePatterns();
-        return replaced;
+        boolean changed = !before.equals(ConfigJson.listToJson(patterns));
+        if (changed) {
+            setReloadEditors();
+            savePatterns();
+        }
+        return new MergeResult(replaced, incoming.size() - replaced, changed);
+    }
+
+    /** Index of this exact pattern object, or -1 when it is no longer in the list. */
+    public int indexOf(CapturePattern pattern) {
+        for (int i = 0; i < patterns.size(); i++) {
+            if (patterns.get(i) == pattern) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Index of the pattern with this name, or -1. Names are unique across the whole list. */

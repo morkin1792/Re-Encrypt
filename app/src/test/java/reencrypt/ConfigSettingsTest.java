@@ -3,41 +3,18 @@ package reencrypt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Proxy;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
-import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.persistence.Persistence;
 
 /** Export/import of the settings block: a file carries only what its author changed. */
 class ConfigSettingsTest {
 
-    /** Persistence backed by a plain map, so getPreference's write-back behaves like the real one. */
     private static Persistence fakePersistence() {
-        Map<String, Object> store = new HashMap<>();
-        PersistedObject persisted = (PersistedObject) Proxy.newProxyInstance(
-                ConfigSettingsTest.class.getClassLoader(), new Class[] { PersistedObject.class },
-                (proxy, method, args) -> {
-                    String name = method.getName();
-                    if (name.equals("toString")) {
-                        return "fakePersistedObject";
-                    }
-                    if (name.startsWith("get") && args != null && args.length == 1) {
-                        return store.get(args[0]);
-                    }
-                    if (name.startsWith("set") && args != null && args.length == 2) {
-                        store.put((String) args[0], args[1]);
-                        return null;
-                    }
-                    return null;
-                });
-        return (Persistence) Proxy.newProxyInstance(ConfigSettingsTest.class.getClassLoader(),
-                new Class[] { Persistence.class },
-                (proxy, method, args) -> method.getName().equals("extensionData") ? persisted : null);
+        return FakePersistence.create();
     }
 
     @Test

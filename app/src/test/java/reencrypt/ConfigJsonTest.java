@@ -162,6 +162,39 @@ class ConfigJsonTest {
     }
 
     @Test
+    void aPatternWritesEveryFieldEvenAtItsDefaults() {
+        String json = ConfigJson.toFile(List.of(commandPattern()), null, false);
+
+        // Custom command mode: the file says so outright instead of leaving the reader to infer it.
+        assertTrue(json.contains("\"engineId\": null"), json);
+        assertTrue(json.contains("\"engineParams\": {}"), json);
+        for (String field : new String[] { "name", "isRequest", "patchProxy", "patternType", "patternInput",
+                "captureRegex", "decCommand", "encCommand", "useCacheSystem", "saveToLog", "detectGarbage",
+                "useProjectScope", "urlTargetRegex" }) {
+            assertTrue(json.contains("\"" + field + "\""), "missing " + field);
+        }
+    }
+
+    @Test
+    void aPatternMissingEverythingImportsWithDefaults() {
+        CapturePattern back = ConfigJson.fromFile("{\"reencrypt\":1,\"patterns\":[{\"name\":\"bare\"}]}")
+                .patterns.get(0);
+
+        assertEquals("bare", back.getName());
+        assertTrue(back.isRequest());
+        assertTrue(back.isEnabled());
+        assertTrue(back.shouldDetectGarbage());
+        assertFalse(back.shouldPatchProxy());
+        // These match the Add Pattern dialog, where both boxes start ticked.
+        assertTrue(back.shouldUseCacheSystem());
+        assertTrue(back.shouldSaveToLog());
+        assertFalse(back.usesProjectScope());
+        assertEquals(PatternType.CUSTOM_REGEX, back.getPatternType());
+        assertNull(back.getEngineId());
+        assertEquals("", back.getURLTargetRegex());
+    }
+
+    @Test
     void exportDowngradesProjectScopeToEverything() {
         CapturePattern projectScoped = new CapturePattern("p", "(.*)", "ignored", "d", "e",
                 true, false, false, false, true, PatternType.CUSTOM_REGEX, "(.*)");

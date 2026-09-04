@@ -40,6 +40,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -97,6 +99,8 @@ public class SettingsTab {
     private JPanel analyzeResultsPanel;
     private AutoLoader autoLoader;
     private char currentSplitDelimiter; // delimiter of the split currently shown, or '\0'
+    private String analyzeUrl; // URL the analyzer's content came from, for seeding a pattern's target
+    private javax.swing.Timer autoLoadStatusTimer;
 
     public SettingsTab(MontoyaApi api, Config config) {
         this.api = api;
@@ -379,11 +383,57 @@ public class SettingsTab {
         }
         String seedName = config.generateUniqueName("Analyzed pattern");
         CapturePattern r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(), seedRegex,
-                seedName);
+                seedName, seedTarget());
         if (r != null) {
             config.addPattern(r);
             reloadPatternTable();
         }
+    }
+
+    /**
+     * A target-scope regex for a pattern built in the analyzer: the host of the message the window was
+     * filled from, dots escaped. It works for a response too, since the host comes from the URL rather
+     * than from the text on screen.
+     *
+     * <p>
+     * The window is reused, so its content can outlive that URL - if the text on screen is an HTTP
+     * request naming a different Host, the two disagree and nothing is pre-filled rather than
+     * scoping the pattern to the wrong site.
+     * </p>
+     */
+    private String seedTarget() {
+        return targetRegexFor(analyzeUrl, analyzeEditor == null ? null : analyzeEditor.getVisibleText());
+    }
+
+    /** @see #seedTarget() */
+    static String targetRegexFor(String url, String shownText) {
+        String host = hostOf(url);
+        if (host == null) {
+            return null;
+        }
+        String shown = hostHeaderIn(shownText);
+        if (shown != null && !shown.equalsIgnoreCase(host)) {
+            return null;
+        }
+        return host.replace(".", "\\.");
+    }
+
+    private static String hostOf(String url) {
+        try {
+            String host = url == null ? null : java.net.URI.create(url).getHost();
+            return host == null || host.isEmpty() ? null : host;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** The Host header of an HTTP request in the given text, port stripped, or null. */
+    private static String hostHeaderIn(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher m = Pattern.compile("(?im)^Host:[ \\t]*([^\\r\\n:]+)").matcher(text);
+        return m.find() ? m.group(1).trim() : null;
     }
 
     /**
@@ -405,9 +455,10 @@ public class SettingsTab {
     }
 
     /** Entry point used by the context-menu provider for a sent request (+ optional response). */
-    public void analyzeRequestResponse(String requestText, boolean hasResponse, String responseText) {
+    public void analyzeRequestResponse(String requestText, boolean hasResponse, String responseText, String url) {
         SwingUtilities.invokeLater(() -> {
             showAnalyzeWindow();
+            analyzeUrl = url;
             if (analyzeEditor != null) {
                 analyzeEditor.setContent(requestText, hasResponse, responseText);
             }
@@ -415,9 +466,10 @@ public class SettingsTab {
     }
 
     /** Entry point for a pasted/selected ciphertext string. */
-    public void analyzePasted(String text) {
+    public void analyzePasted(String text, String url) {
         SwingUtilities.invokeLater(() -> {
             showAnalyzeWindow();
+            analyzeUrl = url;
             if (analyzeEditor != null) {
                 analyzeEditor.setPastedContent(text);
             }
@@ -430,6 +482,18 @@ public class SettingsTab {
     }
 
 
+    /** Start, restart or stop the poll thread to match the stored auto-load settings. */
+    private void syncAutoLoader() {
+        if (autoLoader == null) {
+            return;
+        }
+        if (config.isAutoLoadEnabled()) {
+            autoLoader.start(config.getAutoLoadPath(), config.getAutoLoadIntervalSeconds());
+        } else {
+            autoLoader.stop();
+        }
+    }
+
     /** Refresh whichever part of the UI the import actually touched. */
     private void applyImport(PatternIo.Outcome outcome) {
         if (outcome.patternsChanged) {
@@ -437,6 +501,8 @@ public class SettingsTab {
         }
         if (outcome.settingsChanged) {
             reloadSettingsScreen();
+            // An imported config can switch auto-load on, off, or onto another file.
+            syncAutoLoader();
         }
     }
 
@@ -640,8 +706,18 @@ public class SettingsTab {
             if (r == null) {
                 return;
             }
+            // The row may have moved while the dialog was open (auto-load replaces patterns by name),
+            // so find the target again instead of writing back to a stale index.
+            int target = config.indexOf(existing);
+            if (target < 0) {
+                target = config.indexOfName(existing.getName());
+            }
             // Flipping Request/Response is now just a field, so the pattern keeps its row either way.
-            config.editPattern(row, r);
+            if (target < 0) {
+                config.addPattern(r);
+            } else {
+                config.editPattern(target, r);
+            }
             reloadPatternTable();
         };
 
@@ -906,7 +982,7 @@ public class SettingsTab {
 
         // Explanation for decrypt responses
         JLabel decryptExplanation = new JLabel(
-                "Automatically DECRYPT RESPONSES. It will only affect targets defined in the patterns scope.");
+                "Automatically DECRYPT RESPONSES. It will only affect targets defined in the patterns' target scope.");
         decryptExplanation.setFont(decryptExplanation.getFont().deriveFont(11f));
         decryptExplanation.setForeground(Color.GRAY);
         decryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -922,7 +998,7 @@ public class SettingsTab {
 
         // Explanation for encrypt requests
         JLabel encryptExplanation = new JLabel(
-                "Automatically ENCRYPT REQUESTS. It will only affect targets defined in the patterns scope.");
+                "Automatically ENCRYPT REQUESTS. It will only affect targets defined in the patterns' target scope.");
         encryptExplanation.setFont(encryptExplanation.getFont().deriveFont(11f));
         encryptExplanation.setForeground(Color.GRAY);
         encryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -945,7 +1021,7 @@ public class SettingsTab {
 
         // Explanation for payload processor
         JLabel payloadExplanation = new JLabel(
-                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to use the command below");
+                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to make command below transform the payload");
         payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
         payloadExplanation.setForeground(Color.GRAY);
         payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -966,7 +1042,7 @@ public class SettingsTab {
         JTextField commandField = new JTextField(config.getIntruderEncryptCommand());
         commandField.setEnabled(payloadProcessorEnabled);
         commandField.setToolTipText(
-                "Command to use in Intruder Payload Processor. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.   # hello jodson");
+                "Command to use in Intruder Payload Processor. {DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data.   # hello jodson");
         String commandFieldPlaceholder = "python /tmp/YOUR_SCRIPT.js {FILE} ";
         setPlaceholder(commandField, commandFieldPlaceholder);
         commandField.getDocument().addDocumentListener(new DocumentListener() {
@@ -996,7 +1072,7 @@ public class SettingsTab {
 
         // Explanation for payload processor
         JLabel commandExplanation = new JLabel(
-                "Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data");
+                "{DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data");
         commandExplanation.setFont(commandExplanation.getFont().deriveFont(11f));
         commandExplanation.setForeground(Color.GRAY);
         commandExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1031,11 +1107,11 @@ public class SettingsTab {
 
 
     private CapturePattern createOrEditPatternPopup(boolean isRequest) {
-        return createOrEditPatternPopup(null, isRequest, null, null, null, null);
+        return createOrEditPatternPopup(null, isRequest, null, null, null, null, null);
     }
 
     private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
-        return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null);
+        return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null, null);
     }
 
     /**
@@ -1044,10 +1120,12 @@ public class SettingsTab {
      * @param seedEngineParams engine params to seed
      * @param seedCaptureRegex when non-null (new pattern), sets Custom Regex + this value
      * @param seedName         when non-null (new pattern), the default pattern name
+     * @param seedTarget       when non-null (new pattern), pre-selects Custom Scope with this regex
      * @return the built pattern + chosen location, or null if cancelled
      */
     private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest,
-            String seedEngineId, HashMap<String, String> seedEngineParams, String seedCaptureRegex, String seedName) {
+            String seedEngineId, HashMap<String, String> seedEngineParams, String seedCaptureRegex, String seedName,
+            String seedTarget) {
         CapturePattern pattern = null;
 
         JPanel panel = new JPanel();
@@ -1224,10 +1302,10 @@ public class SettingsTab {
         // as the backing state (not shown inline).
         JTextField decCommand = new JTextField();
         decCommand.setToolTipText(
-                "Command to decrypt/decode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
+                "Command to decrypt/decode. {DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data.");
         JTextField encCommand = new JTextField();
         encCommand.setToolTipText(
-                "Command to encrypt/encode. Use {DATA} to refer to the captured data, or {FILE} to refer to a temporary file containing the captured data.");
+                "Command to encrypt/encode. {DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data.");
 
         // Refresh the warning beside the Configure button from the current mode + config state.
         Runnable refreshConfigWarning = () -> {
@@ -1346,11 +1424,11 @@ public class SettingsTab {
         moreSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         moreSettingsPanel.setVisible(false);
 
-        JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decrypting", true);
+        JCheckBox cacheCommandsCheckbox = new JCheckBox("Use cache system for decrypting", CapturePattern.DEFAULT_USE_CACHE_SYSTEM);
         addComponent(moreSettingsPanel, cacheCommandsCheckbox);
         addGrayLabel(moreSettingsPanel, "Save decrypted outputs, and load them when a decrypt command fails");
 
-        JCheckBox dontCacheGarbageCheckbox = new JCheckBox("Do not cache garbage decryptions", true);
+        JCheckBox dontCacheGarbageCheckbox = new JCheckBox("Do not cache garbage decryptions", CapturePattern.DEFAULT_DETECT_GARBAGE);
         dontCacheGarbageCheckbox.setBorder(new EmptyBorder(0, 20, 0, 0));
         addComponent(moreSettingsPanel, dontCacheGarbageCheckbox);
         addGrayLabel(moreSettingsPanel,
@@ -1360,12 +1438,12 @@ public class SettingsTab {
         cacheCommandsCheckbox.addActionListener(
                 e -> dontCacheGarbageCheckbox.setEnabled(cacheCommandsCheckbox.isSelected()));
 
-        JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in General Settings", true);
+        JCheckBox saveToLogCheckbox = new JCheckBox("Log data to the file defined in General Settings", CapturePattern.DEFAULT_SAVE_TO_LOG);
         addComponent(moreSettingsPanel, saveToLogCheckbox);
         addGrayLabel(moreSettingsPanel,
                 "Allowing you to easily search in plaintext data. Proxy data will also be logged if the next option is enabled");
 
-        JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy traffic", false);
+        JCheckBox patchProxyCheckbox = new JCheckBox("Patch proxy traffic", CapturePattern.DEFAULT_PATCH_PROXY);
         addComponent(moreSettingsPanel, patchProxyCheckbox);
         addGrayLabel(moreSettingsPanel, "Automatically re-encrypt proxy data");
 
@@ -1455,6 +1533,12 @@ public class SettingsTab {
                     engineParamsHolder[0] = seedEngineParams != null ? new HashMap<>(seedEngineParams) : null;
                 }
             }
+            // Seed the target scope from the host the analyzed message came from
+            if (seedTarget != null && !seedTarget.isEmpty()) {
+                scopeTypeCombo.setSelectedItem("Custom Scope");
+                scopeInputField.setText(seedTarget);
+                scopeInputPanel.setVisible(true);
+            }
             // Seed the capture as a Custom Regex built from the analyzed selection
             if (seedCaptureRegex != null) {
                 patternTypeCombo.setSelectedItem(PatternType.CUSTOM_REGEX.getDisplayName());
@@ -1517,7 +1601,11 @@ public class SettingsTab {
             boolean duplicate = false;
             for (CapturePattern p : config.getPatterns()) {
                 if (p.getName().equals(name)) {
-                    if (existingPattern != null && p == existingPattern) {
+                    // Keeping your own name is never a clash. Matching on the name rather than on
+                    // object identity matters while auto-load is running: it replaces the pattern in
+                    // the list with a fresh object, so the one this dialog opened is no longer in it.
+                    if (existingPattern != null
+                            && (p == existingPattern || name.equals(existingPattern.getName()))) {
                         continue;
                     }
                     duplicate = true;
@@ -1576,8 +1664,8 @@ public class SettingsTab {
         javax.swing.JTextArea explain = new javax.swing.JTextArea(
                 "Decrypt converts the captured data to plaintext. Encrypt converts it back.\n\n"
                         + "Use these placeholders in either command:\n"
-                        + "  • {DATA} — the captured data, inserted inline.\n"
-                        + "  • {FILE} — path to a temp file holding the data (best for binary or large data).\n\n"
+                        + "  • {DATA} will be replaced by the captured data, inserted inline.\n"
+                        + "  • {FILE} will be replaced by the path to an auto-created tmp file holding the data (best for binary or large data).\n\n"
                         + "The command's output is used as the result.");
         explain.setEditable(false);
         explain.setLineWrap(true);
@@ -1832,13 +1920,7 @@ public class SettingsTab {
 
         Runnable apply = () -> {
             config.setAutoLoad(enabled.isSelected(), pathField.getText().trim(), (Integer) interval.getValue());
-            if (autoLoader != null) {
-                if (config.isAutoLoadEnabled()) {
-                    autoLoader.start(config.getAutoLoadPath(), config.getAutoLoadIntervalSeconds());
-                } else {
-                    autoLoader.stop();
-                }
-            }
+            syncAutoLoader();
         };
         enabled.addActionListener(e -> apply.run());
         interval.addChangeListener(e -> apply.run());
@@ -1850,16 +1932,42 @@ public class SettingsTab {
             }
         });
 
+        JLabel autoLoadStatus = new JLabel(" ");
+        autoLoadStatus.setFont(autoLoadStatus.getFont().deriveFont(11f));
+        autoLoadStatus.setForeground(Color.GRAY);
+        Runnable refreshStatus = () -> autoLoadStatus
+                .setText(autoLoader == null ? " " : autoLoader.statusLine());
+        // The poll runs on its own thread; this is the only way to see that it is still alive.
+        if (autoLoadStatusTimer != null) {
+            autoLoadStatusTimer.stop(); // an earlier build of this panel left one running
+        }
+        autoLoadStatusTimer = new javax.swing.Timer(1000, e -> refreshStatus.run());
+        autoLoadStatusTimer.start();
+        refreshStatus.run();
+
         autoLoad.add(enabled);
         autoLoad.add(pathField);
         autoLoad.add(browse);
         autoLoad.add(new JLabel("every"));
         autoLoad.add(interval);
         autoLoad.add(new JLabel("s"));
+        JButton reloadNow = new JButton("Reload now");
+        reloadNow.setToolTipText("Read and apply the file immediately, without waiting for the next check");
+        reloadNow.addActionListener(e -> {
+            apply.run(); // pick up an edited path or interval first
+            if (autoLoader != null) {
+                autoLoader.reloadNow(pathField.getText().trim());
+            }
+            refreshStatus.run();
+        });
+        autoLoad.add(Box.createHorizontalStrut(8));
+        autoLoad.add(reloadNow);
+        autoLoad.add(Box.createHorizontalStrut(12));
+        autoLoad.add(autoLoadStatus);
         panel.add(autoLoad);
 
         JLabel hint = new JLabel(
-                "Patterns with same name will be replaced. Settings inside this JSON will be ignored.");
+                "Patterns with same name will be replaced and enabled. Settings inside this JSON will be ignored.");
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
         hint.setBorder(new EmptyBorder(4, 0, 0, 0));
         panel.add(hint);

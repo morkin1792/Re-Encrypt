@@ -578,6 +578,11 @@ public class MarkerEditor extends JPanel {
         return sb.toString();
     }
 
+    /** Everything currently shown, markers removed. */
+    public String getVisibleText() {
+        return textArea.getText().replace(String.valueOf(MARK), "");
+    }
+
     /** The text between the two markers, or null when nothing is marked. */
     public String getCurrentCiphertext() {
         String t = textArea.getText();
