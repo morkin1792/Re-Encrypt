@@ -73,8 +73,11 @@ code is exercised on every save instead of only when someone clicks Export.
   `Config.migrateSplitLists()` folds those into one list (requests first) on first load and deletes the
   old keys.
 - `ConfigJson.toFile` / `fromFile` — exchange files: `{"reencrypt":1,"exported":…,"patterns":[…],"settings":{…}}`.
-  Pattern order in the file is the table order and is preserved on import. Each pattern carries
-  `isRequest` but **no `enabled`**: whether a pattern runs is the importer's
+  Pattern order in the file is the table order and is preserved on import. A pattern writes **every**
+  field, defaults included (`"engineId": null` and `"engineParams": {}` for command mode) — a pattern
+  decides what runs against live traffic, so a file states it rather than leaving it to be inferred;
+  a field a file omits still falls back to its default on import. Each pattern carries `isRequest` but
+  **no `enabled`**: whether a pattern runs is the importer's
   call (the import dialog's checkbox), and `fromNode` defaults it to true so auto-load — which has no
   prompt — takes effect. `settings` is omitted by a patterns-only export. Unknown keys are
   ignored; a bad entry is skipped and reported in `ImportResult.errors` rather than failing the file.
@@ -90,8 +93,24 @@ code is exercised on every save instead of only when someone clicks Export.
   an import will run) and the collision policy. `PatternIo.sourcedInputs()` renders the commands and
   file paths a pattern uses to fetch key material; the settings table's Configuration column shares it
   so both places describe a pattern the same way.
-- `AutoLoader` — optional mtime poll on one file, replacing the whole pattern set on each change so a
-  producer can delete patterns. Its `settings` block is ignored.
+- `AutoLoader` — a `ScheduledExecutorService` (single daemon thread) that applies the file on **every**
+  tick, not only when the file changes: the file is the source of truth for the patterns it names, so
+  a pattern edited or deleted inside Burp is restored on the next check. `Config.mergePatternsByName`
+  reports whether anything actually moved (it diffs the serialized list), and a tick that changed
+  nothing stays silent — no log line, no table rebuild, no persistence write. Everything it applies is
+  forced `enabled`: a watched file is meant to be in force, so a pattern switched off in the table is
+  switched back on at the next check. `tick()` catches **`Throwable`** and lets nothing escape: an exception out of a
+  scheduled task cancels the whole schedule silently, which looks exactly like "auto-load ran once and
+  then stopped" — the same shape as an `Error` killing a hand-rolled poll thread. **`App` registers an
+  unloading handler** that stops it; without one, every extension reload left the previous watcher
+  polling with a stale `Config` and writing that stale list back to the project's storage. It logs the
+  resolved absolute path when it starts and when it stops, `statusLine()` feeds a live readout in the
+  settings panel, and `reloadNow(path)` backs a "Reload now" button that applies the file immediately
+  whether or not the watcher is running. Each reload merges by name
+  (`Config.mergePatternsByName`): a name that already exists is replaced where it sits, new ones are
+  appended, and patterns the file does not mention are left alone — so removing a pattern from the file
+  does not remove it from Burp. Its `settings` block is ignored. It runs off the EDT, so it calls back
+  through `setOnReload` (wired in `SettingsTab.setAutoLoader`) to refresh the table.
 
 JSON comes from **Gson, shaded to `reencrypt.shaded.gson`**. Montoya ships a JSON API but it is backed
 by an `ObjectFactoryLocator.FACTORY` that only Burp populates, so it is null under unit tests and would

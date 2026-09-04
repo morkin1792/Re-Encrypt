@@ -1,95 +1,112 @@
 # Re:Encrypt
 
-**Re:Encrypt** is a Burp Suite extension designed to handle custom encryption and decryption of traffic on the fly. It allows you to define patterns (regex) for encrypted data and command-line tools to transform it, seamlessly integrating with Proxy, Repeater, and Intruder tools.
+**Re:Encrypt** is a Burp Suite extension for apps that encrypt their own traffic.
 
-## ✨ Key Features
+Tell it *where* the encrypted data is and *how* to decrypt it. From then on, Burp shows you plaintext, and whatever you change is encrypted back.
 
-* **👁️ See the Plaintext**: Easily decrypts traffic in Proxy, Intruder and Repeater so you can understand the application flow.
-* **✏️ Edit without Pain**: Modify decrypted data directly in Burp Suite without copying and pasting from a terminal. 
-* **⚡ Intruder Support**: Attack encrypted endpoints effortlessly. 
-* **🌍 Universal Compatibility**: Works with any encryption scheme. Just provide a command-line script (Python, Node, OpenSSL, etc.) to decrypt and encrypt your data.
+![](./images/patterns_tab.png)
 
-## 📦 Installation
+## ✨ What it does
 
-### Requirements
-* Burp Suite v2024.x or later (Recommended to use the latest available).
-* Java 21 or later.
+### 👁️ Plaintext everywhere
 
-### Build from Source
-1. Clone the repository.
-2. Run the build command:
-```bash
-./gradlew build
-```
-3. Load the generated JAR (`app/build/libs/re-encrypt.jar`) in Burp Suite via **Extensions > Installed > Add**.
+A **Re:Encrypt** tab shows up next to *Pretty* / *Raw*. Open it and you read the request as the app wrote it, not as it was sent.
 
+![](./images/repeater_tab.png)
 
-⚠️ UNDER CONSTRUCTION ⚠️
+### ✏️ Edit without the terminal
 
-INSTRUCTIONS BELOW HAVE TO BE UPDATED IN THE NEAR FUTURE!
+In Repeater, type your payload into the Re:Encrypt custom tab, press **Send**, and it goes out encrypted. No copying blobs in and out of a shell.
 
-<strike>
-## ⚙️ Configuration
-### 1. Define Patterns
-Add regex patterns to capture the data you want to transform.
-* **Request Patterns**: Target encrypted data in requests (e.g., `data=(.*?)&`).
-* **Response Patterns**: Target encrypted data in responses.
-* **Context Menu**: Right-click the patterns table to manage patterns.
+### ⚡ Intruder
 
-### 2. Configure Commands
-Define the shell commands to execute for each pattern.
-* **Decrypt Command**: Decrypts the captured ciphertext to plaintext.
-* **Encrypt Command**: Encrypts plaintext back to ciphertext.
+Encrypted endpoints can be fuzzed like any other. In **Intruder Settings**, enable *Auto-encrypt intruder requests* and write your payloads in plaintext, or *Encrypt using payload processor* and add it as a rule under Intruder → Payloads → Payload processing.
 
-**Command Placeholders:**
-* `{DATA}`: Replaced by the captured string (e.g., `echo "{DATA}" | base64 -d`).
-* `{FILE}`: Replaced by the path to a temporary file containing the captured data (recommended for complex payloads).
+![](./images/intruder_settings.png)
 
-**Example Command (Python)**:
-```bash
-python /path/to/script.py --decrypt --file {FILE}
-```
-</strike>
+![](./images/intruder_payload.png)
 
-## 🚀 Usage
+### 🔐 Built-in AES and RSA
 
-### Repeater
-* When a pattern is matched, Re:Encrypt adds a custom tab to Burp Suite.
-* If you open the custom tab, the extension uses the **Decrypt Command** to recover the plaintext, and shows it in the tab. 
-* You can then edit the plaintext directly.
-* When you click in Send, the extension will:
-    1. Encrypts your plaintext using the **Encrypt Command** while updating the request body.
-    2. Send the encrypted request.
+For common schemes, you don't need any script: pick **AES** or **RSA** and fill in the fields.
 
-### Proxy
-* Apart from the custom tab to decrypt data in Proxy, Re:Encrypt also offers a **"Patch proxy"** option to re-encrypt (decrypt + encrypt) traffic on the fly.
-* One of the main use cases for using "Patch proxy" is when the client-side is encrypting using a public key received from the server, so theoretically there is no way to decrypt. However, you still can create your own pair of keys and set a new public key in the client-side. Then, use this option to decrypt requests using your private key, and encrypt them again before sending to the server using the original public key
-* To verify modifications, click on the dropdown arrow next to "Original request", or check the Re:Encrypt's log file
+![](./images/aes_configs.png)
+
+### 🌍 …or any encryption at all
+
+Anything the built-ins don't cover, a script does. Give a **decrypt** and an **encrypt** command in any language. 
+The captured data arrives as `{DATA}` (inline) or `{FILE}` (an auto-created temporary file):
+
+![](./images/custom_commands.png)
+
+### 🧪 Not sure what the encryption is?
+
+Right-click a request → **Extensions → Re:Encrypt → Analyze ciphertext**. 
+Re:Encrypt marks what looks encrypted, guesses the scheme, and **Create pattern** turns a guess into a working pattern.
+There is also **Copy AI prompt** if you'd rather ask an LLM.
+
+![](./images/cryptanalysis.png)
+
+### 🔁 Patch proxy
+
+**Patch proxy** decrypts and re-encrypts traffic as it flows, with no tab to open.
+
+The classic use: the app encrypts with a public key it got from the server, so in theory you cannot read anything. Swap in *your* public key on the client, then let Re:Encrypt decrypt with your private key and re-encrypt with the original one before the request continues to the server.
+
+To confirm what was changed, use the dropdown next to *Original request* in Proxy:
 
 ![](./images/history_arrow.png)
 
+### 📤 Share a setup
 
-### Intruder
+Export your patterns to a JSON file and import them anywhere. Useful for sending a working config to a teammate.
 
-#### Method A: Auto-Encrypt
-1. Enable **"Auto-encrypt intruder requests"** in Re:Encrypt settings.
-2. Configure your attack using **plaintext** payloads.
-3. *Result:* The extension encrypts matched parts considering all the patterns and commands defined in "Capturing + Processing".
+![](./images/export_import_json.png)
 
-#### Method B: Payload Processor
-1. Enable **"Encrypt using payload processor"** in Re:Encrypt settings.
-2. In Intruder > Payloads > Payload Processing, add an "Invoke Burp extension" rule -> Select Re:Encrypt's option.
-3. *Result:* Payloads are encrypted individually before being sent.
+### 🤖 Keep patterns in sync with a file
 
+Point **Auto-load** at a JSON file and Re:Encrypt keeps itself up to date with it, every few seconds.
+Useful when a script, or an AI agent, is working out the encryption while you test.
+
+⚠️ A pattern can run shell commands, so only import or auto-load files you trust.
+
+### 📝 Log
+
+Every decryption can be written to a log file, so you can grep the whole session in plaintext.
+
+## 🚀 Quick start
+
+1. Open the **Re:Encrypt** tab → **Capturing + Processing** → **Add**.
+2. Name it, and choose whether it applies to **requests** or **responses**.
+3. Say where the ciphertext is: a header, a URL/JSON parameter, the whole body, or your own regex.
+4. Choose a cryptographic algorithm and fill in the fields, or write your **decrypt** and **encrypt** commands.
+5. After adding the patterns, go to your requests and watch the magic happen.
+
+## 📦 Install
+
+Requirements: **Burp Suite v2025.x or later**, **Java 21+**.
+
+1. Clone this repository.
+2. Build the jar:
+```bash
+./gradlew build
+```
+3. In Burp: **Extensions → Installed → Add**, then pick `app/build/libs/re-encrypt.jar`.
+
+![](./images/loading_extension.png)
 
 ## 🐛 Troubleshooting
 
-* **Logs**: Check Burp Suite Event log for command outputs and errors.
-* **Payload Trimming**: The extension strips a single trailing newline from command output (to handle `echo`-like behavior) but preserves other whitespace.
+* **Re:Encrypt custom tab is not appearing**: Check the pattern's *Target*, and if the pattern is enabled.
+* **Nothing is decrypted**: Look for execution errors. Check if the **Configuration** column of that pattern shows a ⚠ saying something is missing.
+* **Command errors**: Logs will appear in one of these depending on the tool and the error: at the top of the Re:Encrypt tab, in Burp's Event log, or in Burp's **Extensions → Output / Errors**.
+* **Odd trailing characters**: One trailing newline is stripped from command output, everything else is kept as-is.
 
 ## 🙌 Acknowledgements
 
-This extension originated from an idea by `Jodson`. Development was made possible by `Marcelo`, `Palula` & [Tempest](https://tempest.com.br), with additional technical assistance from the `PortSwigger support team`.
+This extension originated from an idea by `Jodson`. Development was made possible by `Marcelo`,
+`Palula` & [Tempest](https://tempest.com.br), with additional technical assistance from the
+`PortSwigger support team`.
 
 ---
 
@@ -104,19 +121,23 @@ This extension originated from an idea by `Jodson`. Development was made possibl
 - ~~again bug on editor focus~~
 - ~~intruder support again (use the HttpHandler to decrypt the message, edit comments through the HttpHandler, intruder tab)~~
 - ~~?pre-defined patterns?~~
-- better UI (layout, buttons) - WIP
+- ~~better UI (layout, buttons) - WIP~~
     * how intuitive is the UI now?
     * sizes of the panels
-    * https://portswigger.net/bappstore
-- pre defined encryption/scripts
+- ~~pre defined encryption/scripts~~
+- ~~update README~~
+- ~~export/import configs~~
+- how can MCP work with this extension?
+- improve Crypto Analysis tool
+    - prompt
+    - detections
+    - skill integration
+- teach SKILL to configure Re:Encrypt
 - websockets support (repeater, automatically patch proxy messages)
-- export/import configs
-- update README - WIP
 - test intercept req and res
 - test on windows
 - submit extension to BApp Store
 
---- 
+---
 
-**Let's Re:Encrpy!**
-
+**Let's Re:Encrypt!**
