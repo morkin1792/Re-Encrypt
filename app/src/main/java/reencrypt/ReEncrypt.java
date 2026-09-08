@@ -2,6 +2,8 @@ package reencrypt;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -87,9 +89,35 @@ public class ReEncrypt {
         return newRequest;
     }
 
+    /**
+     * A capture regex slower than this is a problem, not a slow machine: it runs several times per
+     * message, on every tool, so a badly shaped one (an unanchored {@code [A-Za-z0-9+/=]{20,}} over a
+     * long base64 header backtracks quadratically) freezes the editor with no clue as to why.
+     */
+    public static final long SLOW_MATCH_MILLIS = 250;
+    /**
+     * Regexes seen to be slow at least once. Sticky on purpose: a regex is matched several times per
+     * message, and every run after the first is warm, so timing the run that happens to reach the UI
+     * would report a fraction of the delay the user actually waited on. It also keeps the warning to
+     * one log line instead of one per message.
+     */
+    private static final Set<String> slowRegexes = ConcurrentHashMap.newKeySet();
+
+    public static boolean isSlowRegex(String regex) {
+        return slowRegexes.contains(regex);
+    }
+
     public static int[] searchPattern(String regex, byte[] text) throws PatternException {
+        long startedAt = System.nanoTime();
         Matcher matcher = Pattern.compile(regex).matcher(new String(text));
-        if (matcher.find()) {
+        boolean found = matcher.find();
+        long elapsed = (System.nanoTime() - startedAt) / 1_000_000;
+        if (elapsed >= SLOW_MATCH_MILLIS && slowRegexes.add(regex)) {
+            System.out.println("[!] Slow capture regex: " + elapsed + " ms on a " + text.length
+                    + " byte message. Anchor it on a literal prefix, or make the quantifiers possessive"
+                    + " (e.g. {20,}+), otherwise it will keep stalling every tool that uses it: " + regex);
+        }
+        if (found) {
             return new int[] { matcher.start(1), matcher.end(1) };
         }
         throw new PatternException(regex);

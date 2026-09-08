@@ -348,6 +348,12 @@ public class RequestResponseTab {
                 } else if (commandOutput.isGarbage()) {
                     editor.setDecodeAlert("[*] Output looks like garbage — likely a wrong key/config; not cached.",
                             ALERT_COLOR_WARNING);
+                } else if (ReEncrypt.isSlowRegex(editor.getPattern().getCaptureRegex())) {
+                    // A regex this slow runs several times per message and will stall every tool that
+                    // uses the pattern, so say it where the user can act on it.
+                    editor.setDecodeAlert("[!] This pattern's capture regex is taking too long, and it slows down"
+                            + " every request it matches. Anchor it on a literal prefix, or make the quantifiers"
+                            + " possessive (e.g. {20,}+).", ALERT_COLOR_WARNING);
                 } else if (collidesWith != null) {
                     editor.setDecodeAlert("[!] Overlap: \"" + collidesWith + "\" captures the same data as this"
                             + " pattern. Two patterns on one value overwrite each other when re-encrypting —"
