@@ -18,6 +18,8 @@ public class Config {
     public static final String fileMarker = "{FILE}";
     public static final String dataMarker = "{DATA}";
     private static final String PATTERNS_KEY = "patterns";
+    /** Incremented whenever something an open editor displays changes; editors redraw when it moves. */
+    private int patternsVersion;
 
     /**
      * Every pattern, request and response together, in the order the settings table shows them.
@@ -31,7 +33,7 @@ public class Config {
     BufferedWriter logWriter;
     String logFilePath;
     boolean enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes, escapeResponseDoubleQuotes,
-            highlightRequestPrintEditor, highlightResponsePrintEditor, reloadRequestEditors, reloadResponseEditors;
+            highlightRequestPrintEditor, highlightResponsePrintEditor;
     Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
     PersistedObject persisted;
     DecryptionCache decryptionCache;
@@ -60,8 +62,6 @@ public class Config {
                 getPreference("reqPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
         this.resPrintEditorHighlightColor = new Color(
                 getPreference("resPrintEditorHighlightColor", Color.YELLOW.getRGB()), true);
-        this.reloadRequestEditors = true;
-        this.reloadResponseEditors = true;
         this.decryptionCache = new DecryptionCache(persisted);
         // Intruder settings
         this.enableIntruderResponseDecrypt = getPreference("enableIntruderResponseDecrypt", true);
@@ -363,6 +363,7 @@ public class Config {
             this.enableResponsePrintEditor = enablePrintEditor;
             this.persisted.setBoolean("enableResponsePrintEditor", enablePrintEditor);
         }
+        setReloadEditors();
     }
 
     public boolean isPrintEditorEnabled(boolean isRequest) {
@@ -377,6 +378,7 @@ public class Config {
             this.escapeResponseDoubleQuotes = escapeDoubleQuotes;
             this.persisted.setBoolean("escapeResponseDoubleQuotes", escapeDoubleQuotes);
         }
+        setReloadEditors();
     }
 
     public void updateHighlightPrintEditor(boolean highlightPrintEditor, boolean isRequest) {
@@ -387,6 +389,7 @@ public class Config {
             this.highlightResponsePrintEditor = highlightPrintEditor;
             this.persisted.setBoolean("highlightResponsePrintEditor", highlightPrintEditor);
         }
+        setReloadEditors();
     }
 
     public void updatePrintEditorHighlightColor(Color color, boolean isRequest) {
@@ -397,6 +400,7 @@ public class Config {
             this.resPrintEditorHighlightColor = color;
             this.persisted.setInteger("resPrintEditorHighlightColor", color.getRGB());
         }
+        setReloadEditors();
     }
 
     public boolean isEscapingDoubleQuotes(boolean isRequest) {
@@ -412,12 +416,17 @@ public class Config {
     }
 
     /**
-     * One list means an edit can change either direction (a pattern can be flipped, or reordered past
-     * one of the other kind), so both sets of editors are told to rebuild.
+     * Bumped on every change that alters what an open editor shows - the patterns themselves, and the
+     * display settings such as the Print Tab. Editors compare it against the version they last
+     * rendered, so each one refreshes itself exactly once per change - a consume-once flag would be
+     * taken by whichever editor rendered first, leaving every other open message stale.
      */
     void setReloadEditors() {
-        this.reloadRequestEditors = true;
-        this.reloadResponseEditors = true;
+        patternsVersion++;
+    }
+
+    public int getPatternsVersion() {
+        return patternsVersion;
     }
 
     // Intruder settings getters and setters
@@ -610,16 +619,6 @@ public class Config {
         return result;
     }
 
-    public boolean checkReloadEditors(boolean isRequest) {
-        if (isRequest) {
-            boolean result = reloadRequestEditors;
-            reloadRequestEditors = false;
-            return result;
-        } else {
-            boolean result = reloadResponseEditors;
-            reloadResponseEditors = false;
-            return result;
-        }
-    }
+
 
 }

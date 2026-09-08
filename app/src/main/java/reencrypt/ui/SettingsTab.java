@@ -212,7 +212,9 @@ public class SettingsTab {
         }
 
         CipherAnalyzer.AnalysisResult result = CipherAnalyzer.analyze(ct);
-        boolean actionable = result.suggestions.stream().anyMatch(Suggestion::isActionable);
+        // indicatesEncryption, not isActionable: an "encoded text" finding seeds a pattern too,
+        // but it is not ciphertext, so it must not suppress the split analysis below.
+        boolean actionable = result.suggestions.stream().anyMatch(Suggestion::indicatesEncryption);
 
         // If a single value yields nothing useful, it may be several ciphertexts concatenated.
         CipherAnalyzer.SplitResult sr = actionable ? null : CipherAnalyzer.bestSplit(ct);
@@ -223,7 +225,7 @@ public class SettingsTab {
             for (int i = 0; i < sr.parts.size(); i++) {
                 String seg = sr.parts.get(i);
                 CipherAnalyzer.AnalysisResult pr = CipherAnalyzer.analyze(seg);
-                boolean isCipher = pr.suggestions.stream().anyMatch(Suggestion::isActionable);
+                boolean isCipher = pr.suggestions.stream().anyMatch(Suggestion::indicatesEncryption);
                 if (isCipher) {
                     cipherCount++;
                 }
@@ -382,7 +384,8 @@ public class SettingsTab {
                     : analyzeEditor.getCaptureRegex();
         }
         String seedName = config.generateUniqueName("Analyzed pattern");
-        CapturePattern r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(), seedRegex,
+        CapturePattern r = createOrEditPatternPopup(null, isRequest, s.getEngineId(), s.getEngineParams(),
+                s.getDecCommand(), s.getEncCommand(), seedRegex,
                 seedName, seedTarget());
         if (r != null) {
             config.addPattern(r);
@@ -1107,25 +1110,28 @@ public class SettingsTab {
 
 
     private CapturePattern createOrEditPatternPopup(boolean isRequest) {
-        return createOrEditPatternPopup(null, isRequest, null, null, null, null, null);
+        return createOrEditPatternPopup(null, isRequest, null, null, null, null, null, null, null);
     }
 
     private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest) {
-        return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null, null);
+        return createOrEditPatternPopup(existingPattern, isRequest, null, null, null, null, null, null, null);
     }
 
     /**
      * @param seedEngineId     when non-null (and existingPattern is null), pre-selects this
      *                         engine and seeds its params for a NEW pattern
      * @param seedEngineParams engine params to seed
+     * @param seedDecCommand   when non-null (new pattern), selects Custom Command and seeds the
+     *                         decrypt command; mutually exclusive with seedEngineId
+     * @param seedEncCommand   the matching encrypt command
      * @param seedCaptureRegex when non-null (new pattern), sets Custom Regex + this value
      * @param seedName         when non-null (new pattern), the default pattern name
      * @param seedTarget       when non-null (new pattern), pre-selects Custom Scope with this regex
      * @return the built pattern + chosen location, or null if cancelled
      */
     private CapturePattern createOrEditPatternPopup(CapturePattern existingPattern, boolean isRequest,
-            String seedEngineId, HashMap<String, String> seedEngineParams, String seedCaptureRegex, String seedName,
-            String seedTarget) {
+            String seedEngineId, HashMap<String, String> seedEngineParams, String seedDecCommand,
+            String seedEncCommand, String seedCaptureRegex, String seedName, String seedTarget) {
         CapturePattern pattern = null;
 
         JPanel panel = new JPanel();
@@ -1520,6 +1526,17 @@ public class SettingsTab {
         } else {
             // New pattern - auto-generate name (or use a seeded name, e.g. from Analyze)
             nameField.setText(seedName != null ? seedName : config.generateUniqueName());
+            // Seed the commands before the placeholders: setPlaceholder only fills an empty field,
+            // so seeded text survives it and is not mistaken for placeholder text on focus.
+            if (seedDecCommand != null || seedEncCommand != null) {
+                encModeCombo.setSelectedItem(CryptoEngineRegistry.CUSTOM_COMMAND);
+                if (seedDecCommand != null) {
+                    decCommand.setText(seedDecCommand);
+                }
+                if (seedEncCommand != null) {
+                    encCommand.setText(seedEncCommand);
+                }
+            }
             setPlaceholder(decCommand, "cat {FILE} ");
             setPlaceholder(encCommand, "cat {FILE} ");
             // Default to Parameter JSON for new patterns

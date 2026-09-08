@@ -135,6 +135,11 @@ Two execution paths: `execute()` merges stderr into stdout so command errors sur
 
 - Handlers compare an XXH3 hash of content before vs. after patching and only replace the message when it changed; they also recompute `Content-Length` on the new request/response.
 - Editors read/write bytes using the `Windows-1252` charset to round-trip binary faithfully (see `RequestResponseTab.setBytes`).
-- `Config.checkReloadEditors()` is a consume-once flag that tells editor tabs to rebuild after pattern edits.
+- `Config.getPatternsVersion()` is bumped on every pattern change; each editor tab remembers the version
+  it last rendered and re-decodes when it moves. It replaced a consume-once boolean, which the first
+  editor to render swallowed — leaving every other open message showing stale alerts and an empty Print
+  Tab. Note that rebuilding the tab list is not enough on its own: the decode that fills the editors,
+  the alerts and the Print Tab lives in `setBytes`, so `uiComponent()` re-runs it from the cached
+  message rather than only calling `reloadEditors()`.
 - Persisted state lives in Burp's `PersistedObject` (`persistence().extensionData()`), not files — except the human-readable activity log written to `~/reencrypt.log` (path configurable).
 - `Config` records load failures in `getLoadErrors()`; `App` reports them via `logging().logToError()` so unreadable stored config is visible instead of silently producing an empty table.

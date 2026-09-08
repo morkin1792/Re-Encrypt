@@ -55,7 +55,7 @@ public class CipherAnalyzer {
         detectDirect(input, enc, decoded, out);
 
         // If nothing actionable, hypothesis (b): maybe a different encoding than auto-detected.
-        if (!hasActionable(out)) {
+        if (!hasEncryptionFinding(out)) {
             detectAlternateFormats(input, enc, out);
         }
 
@@ -118,11 +118,100 @@ public class CipherAnalyzer {
             detectOpenSsl(decoded, uiEnc, out);
             detectBlockAndRsa(decoded, uiEnc, out);
         } else if (!"Raw".equals(enc) && decodedIsText && out.isEmpty()) {
-            String unwrapped = new String(decoded, StandardCharsets.UTF_8).trim();
-            out.add(Suggestion.info("Looks like encoded text, not encryption",
-                    enc + " decoding gives a readable text:\n" + unwrapped,
-                    50));
+            out.add(encodedTextSuggestion(peelTextLayers(enc, decoded)));
         }
+    }
+
+    /** Max decode hops while peeling nested encodings; the first decode counts as hop 1. */
+    private static final int MAX_PEEL_HOPS = 3;
+
+    /** Under this length a readable value is taken as the plaintext, not as another layer. */
+    private static final int MIN_PEEL_INPUT = 8;
+
+    /** One decode step of a peel: the encoding used and the text it produced. */
+    private static class Layer {
+        final String enc;
+        final String text;
+
+        Layer(String enc, String text) {
+            this.enc = enc;
+            this.text = text;
+        }
+    }
+
+    /**
+     * Peel nested text encodings (e.g. Base64 of Base64 of a plain value): keep decoding while
+     * the result stays readable text and still looks encoded. Stops after {@link #MAX_PEEL_HOPS},
+     * on a value too short to plausibly be another layer, or as soon as a decode yields
+     * non-text bytes. Every layer is returned, so a spurious last hop -- ordinary text that
+     * happens to match the Base64 alphabet and decodes to printable junk -- loses nothing.
+     */
+    private static List<Layer> peelTextLayers(String firstEnc, byte[] firstDecoded) {
+        List<Layer> layers = new ArrayList<>();
+        layers.add(new Layer(firstEnc, new String(firstDecoded, StandardCharsets.UTF_8).trim()));
+        while (layers.size() < MAX_PEEL_HOPS) {
+            String current = layers.get(layers.size() - 1).text;
+            if (current.length() < MIN_PEEL_INPUT) {
+                break;
+            }
+            String enc = detectEncoding(current);
+            if ("Raw".equals(enc)) {
+                break;
+            }
+            byte[] d = tryDecode(current, enc);
+            if (d == null || d.length == 0 || !isPrintableText(d)) {
+                break;
+            }
+            String next = new String(d, StandardCharsets.UTF_8).trim();
+            if (next.isEmpty() || next.equals(current)) {
+                break;
+            }
+            layers.add(new Layer(enc, next));
+        }
+        return layers;
+    }
+
+    /**
+     * The "this is encoding, not encryption" note, naming the whole decode chain. Actionable via
+     * Custom Command when every layer has a command form: the value still has to be decoded to be
+     * read and re-encoded to be sent, so a pattern is as useful here as it is for real ciphertext.
+     */
+    private static Suggestion encodedTextSuggestion(List<Layer> layers) {
+        List<String> encs = new ArrayList<>();
+        StringBuilder chain = new StringBuilder();
+        for (Layer l : layers) {
+            encs.add(l.enc);
+            if (chain.length() > 0) {
+                chain.append(" \u2192 ");
+            }
+            chain.append(l.enc);
+        }
+        StringBuilder expl = new StringBuilder(chain)
+                .append(" decoding gives a readable text:\n")
+                .append(layers.get(layers.size() - 1).text);
+        if (layers.size() > 1) {
+            expl.append("\n\nIntermediate layers:");
+            for (int i = 0; i < layers.size() - 1; i++) {
+                expl.append("\n").append(i + 1).append(". after ").append(layers.get(i).enc).append(": ")
+                        .append(preview(layers.get(i).text));
+            }
+        }
+
+        String title = "Looks like encoded text, not encryption";
+        String dec = EncodingCommands.decodeCommand(encs);
+        String enc = EncodingCommands.encodeCommand(encs);
+        if (dec == null || enc == null) {
+            return Suggestion.info(title, expl.toString(), 50);
+        }
+        expl.append("\n\nCreate pattern seeds a Custom Command pattern that runs this chain, so the ")
+                .append("value shows up decoded and is re-encoded on send.");
+        return Suggestion.command(title, expl.toString(), 50, dec, enc);
+    }
+
+    /** One-line, length-capped rendering of an intermediate layer. */
+    private static String preview(String s) {
+        String one = s.replaceAll("\\s+", " ").trim();
+        return one.length() > 120 ? one.substring(0, 120) + "\u2026 (" + s.length() + " chars)" : one;
     }
 
     /**
@@ -178,11 +267,11 @@ public class CipherAnalyzer {
     /** Add a speculative suggestion with a penalty + prefix; dedupe actionable schemes. */
     private static void addPenalized(List<Suggestion> out, Suggestion s, String label, int penalty) {
         int conf = Math.max(5, s.getConfidence() - penalty);
-        Suggestion adj = s.isActionable()
+        Suggestion adj = s.indicatesEncryption()
                 ? Suggestion.engine("(" + label + ") " + s.getTitle(), s.getExplanation(), conf, s.getEngineId(),
                         s.getEngineParams())
                 : Suggestion.info("(" + label + ") " + s.getTitle(), s.getExplanation(), conf);
-        if (adj.isActionable()) {
+        if (adj.indicatesEncryption()) {
             for (Suggestion e : out) {
                 if (sameScheme(e, adj)) {
                     return;
@@ -197,9 +286,14 @@ public class CipherAnalyzer {
                 && Objects.equals(a.getEngineParams(), b.getEngineParams());
     }
 
-    private static boolean hasActionable(List<Suggestion> out) {
+    /**
+     * Whether a cipher was already identified. Deliberately not {@code isActionable}: the
+     * encoded-text finding is actionable but is precisely the case where the alternate-format
+     * hypotheses are still worth trying (e.g. a JWE hiding under a second Base64 layer).
+     */
+    private static boolean hasEncryptionFinding(List<Suggestion> out) {
         for (Suggestion s : out) {
-            if (s.isActionable()) {
+            if (s.indicatesEncryption()) {
                 return true;
             }
         }

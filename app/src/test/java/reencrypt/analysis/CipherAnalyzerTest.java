@@ -19,6 +19,15 @@ public class CipherAnalyzerTest {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(s.getBytes(StandardCharsets.UTF_8));
     }
 
+    private static Suggestion encodedTextNote(AnalysisResult r) {
+        for (Suggestion s : r.suggestions) {
+            if (s.getTitle().toLowerCase().contains("encoded text")) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     private static Suggestion firstEngine(AnalysisResult r, String engineId) {
         for (Suggestion s : r.suggestions) {
             if (engineId.equals(s.getEngineId())) {
@@ -186,6 +195,62 @@ public class CipherAnalyzerTest {
         assertNull(firstEngine(r, "rsa"));
         assertTrue(r.suggestions.stream().anyMatch(s -> s.getTitle().toLowerCase().contains("encoded text")),
                 "should be recognized as encoded text, not ciphertext");
+    }
+
+    @Test
+    void reportsOneEncodedTextNoteForSingleBase64() {
+        String value = Base64.getEncoder().encodeToString("user=admin&role=superuser".getBytes(StandardCharsets.UTF_8));
+        AnalysisResult r = CipherAnalyzer.analyze(value);
+        long notes = r.suggestions.stream().filter(s -> s.getTitle().toLowerCase().contains("encoded text")).count();
+        assertEquals(1, notes, "a plain Base64 of text must yield exactly one encoded-text note");
+        Suggestion s = encodedTextNote(r);
+        assertTrue(s.getExplanation().startsWith("Base64 decoding gives a readable text:"),
+                "single-layer note should name just the one encoding: " + s.getExplanation());
+        assertTrue(s.getExplanation().contains("user=admin&role=superuser"));
+        assertFalse(s.getExplanation().contains("Intermediate layers"),
+                "a single layer has no intermediates to list");
+    }
+
+    @Test
+    void encodedTextNoteSeedsCustomCommands() {
+        String value = Base64.getEncoder().encodeToString("user=admin&role=superuser".getBytes(StandardCharsets.UTF_8));
+        Suggestion s = encodedTextNote(CipherAnalyzer.analyze(value));
+        assertTrue(s.isActionable(), "an encoded value still needs a pattern to decode/re-encode it");
+        assertFalse(s.indicatesEncryption(), "encoding is not encryption; the analysis UI must not call it a cipher");
+        assertNull(s.getEngineId(), "encoded text is Custom Command mode, not an engine");
+        assertEquals(EncodingCommands.decodeCommand(java.util.Arrays.asList("Base64")), s.getDecCommand());
+        assertEquals(EncodingCommands.encodeCommand(java.util.Arrays.asList("Base64")), s.getEncCommand());
+    }
+
+    @Test
+    void nestedEncodedTextSeedsTheWholeChain() {
+        String inner = Base64.getEncoder().encodeToString("user=admin&role=superuser".getBytes(StandardCharsets.UTF_8));
+        String value = Base64.getEncoder().encodeToString(inner.getBytes(StandardCharsets.UTF_8));
+        Suggestion s = encodedTextNote(CipherAnalyzer.analyze(value));
+        assertEquals(EncodingCommands.decodeCommand(java.util.Arrays.asList("Base64", "Base64")), s.getDecCommand());
+        assertEquals(EncodingCommands.encodeCommand(java.util.Arrays.asList("Base64", "Base64")), s.getEncCommand());
+    }
+
+    @Test
+    void peelsNestedBase64DownToThePlaintext() {
+        String inner = Base64.getEncoder().encodeToString("user=admin&role=superuser".getBytes(StandardCharsets.UTF_8));
+        String value = Base64.getEncoder().encodeToString(inner.getBytes(StandardCharsets.UTF_8));
+        Suggestion s = encodedTextNote(CipherAnalyzer.analyze(value));
+        assertTrue(s.getExplanation().startsWith("Base64 \u2192 Base64 decoding gives a readable text:"),
+                "the note should name the whole chain: " + s.getExplanation());
+        assertTrue(s.getExplanation().contains("user=admin&role=superuser"), "should reach the final plaintext");
+        assertTrue(s.getExplanation().contains("1. after Base64: " + inner),
+                "the intermediate layer must still be shown: " + s.getExplanation());
+    }
+
+    @Test
+    void peelStopsAtTextThatOnlyLooksEncoded() {
+        // "deadbeefcafe" is valid Hex, and its decode is binary -- the peel must stop at the text.
+        String value = Base64.getEncoder().encodeToString("deadbeefcafe".getBytes(StandardCharsets.UTF_8));
+        Suggestion s = encodedTextNote(CipherAnalyzer.analyze(value));
+        assertTrue(s.getExplanation().startsWith("Base64 decoding gives a readable text:"),
+                "a layer decoding to non-text must not be peeled: " + s.getExplanation());
+        assertTrue(s.getExplanation().contains("deadbeefcafe"));
     }
 
     @Test
