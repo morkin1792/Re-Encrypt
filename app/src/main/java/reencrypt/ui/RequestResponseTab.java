@@ -318,7 +318,9 @@ public class RequestResponseTab {
         this.cachedMethod = method;
         this.cachedUrl = url;
         this.cachedHttpService = httpService;
-        byte[] printEditorContent = content;
+        // Planned replacements for the Print Tab, all measured against `content` and applied in one
+        // pass after the loop (see ReEncrypt.applyReplacements).
+        ArrayList<ReEncrypt.Replacement> printReplacements = new ArrayList<>();
         // Exact byte ranges of each decrypted region in printEditorContent (kept in sync as later
         // replacements shift earlier ones) — so we highlight what was actually decrypted, with no
         // regex false positives.
@@ -381,28 +383,17 @@ public class RequestResponseTab {
                 }
 
                 if (printEditor != null) {
-                    if (reEncrypt.getConfig().isEscapingDoubleQuotes(isRequest)) {
-                        plainText = plainText.replace("\"", "\\\"");
-                    }
+                    // Only planned here, never applied yet: every span is measured against the original
+                    // content so no pattern can match inside what another one substituted.
                     try {
-                        int[] span = new int[3]; // {newStart, newEnd, oldEnd}
-                        printEditorContent = reEncrypt.matchReplace(printEditorContent, editor.getPattern(), plainText,
-                                span);
-                        int delta = span[1] - span[2]; // newEnd - oldEnd
-                        // Shift earlier decrypted regions that sit after this replacement.
-                        for (int[] prev : highlightSpans) {
-                            if (prev[0] >= span[2]) {
-                                prev[0] += delta;
-                                prev[1] += delta;
-                            }
-                        }
-                        highlightSpans.add(new int[] { span[0], span[1] });
+                        int[] span = ReEncrypt.replacementSpan(content, editor.getPattern(), plainText);
+                        printReplacements.add(new ReEncrypt.Replacement(span[0], span[1],
+                                plainText.getBytes("Windows-1252")));
                     } catch (PatternException e) {
-                        // Another pattern already replaced this span in the combined view. The decrypt
-                        // above still succeeded, so skip it quietly - the overlap itself is reported in
-                        // the alert area, which is what the user acts on.
-                        api.logging().logToOutput("Print Tab: nothing left to replace for pattern \""
-                                + editor.getPattern().getName() + "\" (another pattern captures the same data)");
+                        // Decrypt succeeded but the capture no longer matches this message; nothing to
+                        // show in the combined view.
+                        api.logging().logToOutput("Print Tab: nothing to replace for pattern \""
+                                + editor.getPattern().getName() + "\"");
                     }
                 }
                 // Set per-editor alert based on command result (never print the garbage itself)
@@ -442,6 +433,22 @@ public class RequestResponseTab {
             }
         }
 
+        // One pass over the untouched content; highlightSpans come back in final coordinates.
+        byte[] printEditorContent = ReEncrypt.applyReplacements(content, printReplacements, highlightSpans);
+
+        // The body length changed with the replacements, so the declared Content-Length is now wrong
+        // and Burp will not parse the message. Correcting it can move bytes, so shift any highlight
+        // span that sits after the edit.
+        int[] shift = new int[2]; // {offsetWhereBytesChanged, delta}
+        printEditorContent = ReEncrypt.fixContentLength(printEditorContent, shift);
+        if (shift[1] != 0) {
+            for (int[] span : highlightSpans) {
+                if (span[0] >= shift[0]) {
+                    span[0] += shift[1];
+                    span[1] += shift[1];
+                }
+            }
+        }
         setPrintEditor(httpService, printEditorContent, highlightSpans);
         if (ToolType.REPEATER == toolType && isRequest) {
             setFocusAndCaret();

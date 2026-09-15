@@ -32,7 +32,7 @@ public class Config {
     File logFile;
     BufferedWriter logWriter;
     String logFilePath;
-    boolean enableRequestPrintEditor, enableResponsePrintEditor, escapeRequestDoubleQuotes, escapeResponseDoubleQuotes,
+    boolean enableRequestPrintEditor, enableResponsePrintEditor,
             highlightRequestPrintEditor, highlightResponsePrintEditor;
     Color reqPrintEditorHighlightColor, resPrintEditorHighlightColor;
     PersistedObject persisted;
@@ -55,8 +55,6 @@ public class Config {
         this.patterns = loadPatterns();
         this.enableRequestPrintEditor = getPreference("enableRequestPrintEditor", true);
         this.enableResponsePrintEditor = getPreference("enableResponsePrintEditor", true);
-        this.escapeRequestDoubleQuotes = getPreference("escapeRequestDoubleQuotes", false);
-        this.escapeResponseDoubleQuotes = getPreference("escapeResponseDoubleQuotes", false);
         this.highlightRequestPrintEditor = getPreference("highlightRequestPrintEditor", true);
         this.highlightResponsePrintEditor = getPreference("highlightResponsePrintEditor", true);
         this.reqPrintEditorHighlightColor = new Color(
@@ -111,8 +109,6 @@ public class Config {
         defaults.put("logFilePath", defaultLogFilePath());
         defaults.put("enableRequestPrintEditor", true);
         defaults.put("enableResponsePrintEditor", true);
-        defaults.put("escapeRequestDoubleQuotes", false);
-        defaults.put("escapeResponseDoubleQuotes", false);
         defaults.put("highlightRequestPrintEditor", true);
         defaults.put("highlightResponsePrintEditor", true);
         defaults.put("reqPrintEditorHighlightColor", Color.YELLOW.getRGB());
@@ -148,8 +144,6 @@ public class Config {
         settings.put("logFilePath", logFilePath);
         settings.put("enableRequestPrintEditor", enableRequestPrintEditor);
         settings.put("enableResponsePrintEditor", enableResponsePrintEditor);
-        settings.put("escapeRequestDoubleQuotes", escapeRequestDoubleQuotes);
-        settings.put("escapeResponseDoubleQuotes", escapeResponseDoubleQuotes);
         settings.put("highlightRequestPrintEditor", highlightRequestPrintEditor);
         settings.put("highlightResponsePrintEditor", highlightResponsePrintEditor);
         settings.put("reqPrintEditorHighlightColor", reqPrintEditorHighlightColor.getRGB());
@@ -182,8 +176,6 @@ public class Config {
                 case "logFilePath" -> updateLogFilePath((String) v);
                 case "enableRequestPrintEditor" -> updateShowPrintEditor((Boolean) v, true);
                 case "enableResponsePrintEditor" -> updateShowPrintEditor((Boolean) v, false);
-                case "escapeRequestDoubleQuotes" -> updateShouldEscapeDoubleQuotes((Boolean) v, true);
-                case "escapeResponseDoubleQuotes" -> updateShouldEscapeDoubleQuotes((Boolean) v, false);
                 case "highlightRequestPrintEditor" -> updateHighlightPrintEditor((Boolean) v, true);
                 case "highlightResponsePrintEditor" -> updateHighlightPrintEditor((Boolean) v, false);
                 case "reqPrintEditorHighlightColor" -> updatePrintEditorHighlightColor(new Color((Integer) v, true), true);
@@ -363,17 +355,6 @@ public class Config {
         return isRequest ? enableRequestPrintEditor : enableResponsePrintEditor;
     }
 
-    public void updateShouldEscapeDoubleQuotes(boolean escapeDoubleQuotes, boolean isRequest) {
-        if (isRequest) {
-            this.escapeRequestDoubleQuotes = escapeDoubleQuotes;
-            this.persisted.setBoolean("escapeRequestDoubleQuotes", escapeDoubleQuotes);
-        } else {
-            this.escapeResponseDoubleQuotes = escapeDoubleQuotes;
-            this.persisted.setBoolean("escapeResponseDoubleQuotes", escapeDoubleQuotes);
-        }
-        setReloadEditors();
-    }
-
     public void updateHighlightPrintEditor(boolean highlightPrintEditor, boolean isRequest) {
         if (isRequest) {
             this.highlightRequestPrintEditor = highlightPrintEditor;
@@ -394,10 +375,6 @@ public class Config {
             this.persisted.setInteger("resPrintEditorHighlightColor", color.getRGB());
         }
         setReloadEditors();
-    }
-
-    public boolean isEscapingDoubleQuotes(boolean isRequest) {
-        return isRequest ? escapeRequestDoubleQuotes : escapeResponseDoubleQuotes;
     }
 
     public boolean isHighlightingPrintEditor(boolean isRequest) {

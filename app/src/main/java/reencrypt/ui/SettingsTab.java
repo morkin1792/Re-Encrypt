@@ -2268,23 +2268,6 @@ public class SettingsTab {
         enableExplanation.setBorder(new EmptyBorder(0, 24, 10, 0));
         panel.add(enableExplanation);
 
-        // Escape double quotes checkbox
-        JCheckBox escapeDoubleQuotes = new JCheckBox(
-                String.format("Escape double quotes in decoded values within the Print Tab for %s", currentString),
-                config.isEscapingDoubleQuotes(isRequest));
-        escapeDoubleQuotes.setAlignmentX(Component.LEFT_ALIGNMENT);
-        escapeDoubleQuotes.setEnabled(enablePrintTab.isSelected());
-        escapeDoubleQuotes.setBorder(new EmptyBorder(0, 20, 0, 0));
-        panel.add(escapeDoubleQuotes);
-
-        // Explanation for escape double quotes
-        JLabel escapeExplanation = new JLabel("This may improve how the content is displayed");
-        escapeExplanation.setFont(escapeExplanation.getFont().deriveFont(11f));
-        escapeExplanation.setForeground(Color.GRAY);
-        escapeExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
-        escapeExplanation.setBorder(new EmptyBorder(0, 44, 10, 0));
-        panel.add(escapeExplanation);
-
         // Highlight patterns checkbox
         JCheckBox highlightPrintTab = new JCheckBox("Highlight patterns found in Print Tab for " + currentString,
                 config.isHighlightingPrintEditor(isRequest));
@@ -2304,14 +2287,8 @@ public class SettingsTab {
         enablePrintTab.addItemListener(state -> {
             boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
             config.updateShowPrintEditor(isSelected, isRequest);
-            escapeDoubleQuotes.setEnabled(isSelected);
             highlightPrintTab.setEnabled(isSelected);
             colorButton.setEnabled(isSelected && highlightPrintTab.isSelected());
-        });
-
-        escapeDoubleQuotes.addItemListener(state -> {
-            boolean isSelected = ((JCheckBox) state.getSource()).isSelected();
-            config.updateShouldEscapeDoubleQuotes(isSelected, isRequest);
         });
 
         highlightPrintTab.addItemListener(state -> {

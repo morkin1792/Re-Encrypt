@@ -78,6 +78,177 @@ public class ReEncrypt {
         return cipherText;
     }
 
+    /** One planned replacement: a byte range of the ORIGINAL content, and what belongs there. */
+    public static final class Replacement {
+        public final int start;
+        public final int end;
+        public final byte[] value;
+
+        public Replacement(int start, int end, byte[] value) {
+            this.start = start;
+            this.end = end;
+            this.value = value;
+        }
+    }
+
+    /**
+     * The range this pattern would replace, measured against {@code content}, widened over the
+     * wrapping quotes when {@link #matchReplaceUnquoting} would absorb them.
+     *
+     * @return {@code {start, end}}
+     */
+    public static int[] replacementSpan(byte[] content, CapturePattern pattern, String newValue)
+            throws PatternException {
+        int[] indexes = searchPattern(pattern.getCaptureRegex(), content);
+        int begin = indexes[0];
+        int end = indexes[1];
+        if (begin > 0 && end < content.length && content[begin - 1] == '"' && content[end] == '"'
+                && looksLikeJson(newValue)) {
+            begin--;
+            end++;
+        }
+        return new int[] { begin, end };
+    }
+
+    /**
+     * Apply replacements that were all measured against the same original content, in a single pass.
+     *
+     * <p>
+     * Replacing them one at a time is what corrupted the Print Tab: the second pattern's regex ran over
+     * text the first had already substituted, matched a quote inside it and spliced the payload in
+     * again. Every span here refers to the untouched content, so no pattern can ever see another's
+     * output.
+     * </p>
+     *
+     * <p>
+     * Two patterns claiming overlapping bytes cannot both win; the earlier span is applied and the
+     * other skipped. That case is already reported to the user as an overlap warning.
+     * </p>
+     *
+     * @param outSpans receives where each applied replacement landed in the returned bytes
+     */
+    public static byte[] applyReplacements(byte[] content, java.util.List<Replacement> replacements,
+            java.util.List<int[]> outSpans) {
+        java.util.List<Replacement> ordered = new java.util.ArrayList<>(replacements);
+        ordered.sort(java.util.Comparator.comparingInt(r -> r.start));
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(content.length);
+        int cursor = 0;
+        for (Replacement r : ordered) {
+            if (r.start < cursor || r.start > content.length || r.end > content.length) {
+                continue; // overlaps one already applied, or out of range
+            }
+            out.write(content, cursor, r.start - cursor);
+            int landedAt = out.size();
+            out.write(r.value, 0, r.value.length);
+            if (outSpans != null) {
+                outSpans.add(new int[] { landedAt, out.size() });
+            }
+            cursor = r.end;
+        }
+        out.write(content, cursor, content.length - cursor);
+        return out.toByteArray();
+    }
+
+    /**
+     * Print-view replacement that can absorb the quotes around the captured value.
+     *
+     * <p>
+     * A JSON-param pattern captures the blob <em>inside</em> the quotes, so splicing JSON plaintext
+     * there yields {@code {"data":"{"a":1}"}} - unescaped quotes inside a string, which is not JSON, so
+     * Burp's Pretty tab has nothing it can format. Taking the surrounding quotes with it yields
+     * {@code {"data":{"a":1}}}, a real nested object that Pretty renders properly.
+     * </p>
+     *
+     * <p>
+     * Only when the value really is bracketed by quotes and the plaintext really parses as JSON;
+     * anything else falls through to the plain replacement, so non-JSON payloads are untouched.
+     * </p>
+     */
+    public byte[] matchReplaceUnquoting(byte[] content, CapturePattern pattern, String newValue, int[] outSpan)
+            throws PatternException {
+        int[] indexes = searchPattern(pattern.getCaptureRegex(), content);
+        int begin = indexes[0];
+        int end = indexes[1];
+        if (begin > 0 && end < content.length && content[begin - 1] == '"' && content[end] == '"'
+                && looksLikeJson(newValue)) {
+            begin--;
+            end++;
+        }
+        byte[] newBytes = newValue.getBytes();
+        if (outSpan != null && outSpan.length >= 3) {
+            outSpan[0] = begin;
+            outSpan[1] = begin + newBytes.length;
+            outSpan[2] = end;
+        }
+        return patchRequest(content, begin, end, newBytes);
+    }
+
+    /** A full parse, not a bracket check: turning valid output into a broken document would be worse. */
+    static boolean looksLikeJson(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || (trimmed.charAt(0) != '{' && trimmed.charAt(0) != '[')) {
+            return false;
+        }
+        try {
+            com.google.gson.JsonParser.parseString(trimmed);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Rewrite Content-Length so it matches the body actually present.
+     *
+     * <p>
+     * Replacing ciphertext with plaintext changes the body's length, and the editor path - unlike the
+     * proxy and Intruder handlers - never corrected the header, so Burp was handed a message whose
+     * declared length disagreed with its body and would not parse it.
+     * </p>
+     *
+     * @param outShift receives {@code {offsetWhereBytesChanged, delta}} so callers can move any byte
+     *                 offsets they hold (the Print Tab's highlight spans) across the edit
+     * @return the message with a correct Content-Length, or the original when it has no such header
+     */
+    public static byte[] fixContentLength(byte[] message, int[] outShift) {
+        if (outShift != null && outShift.length >= 2) {
+            outShift[0] = 0;
+            outShift[1] = 0;
+        }
+        String text = new String(message, java.nio.charset.StandardCharsets.ISO_8859_1);
+        int headerEnd = text.indexOf("\r\n\r\n");
+        if (headerEnd < 0) {
+            return message;
+        }
+        int bodyLength = message.length - (headerEnd + 4);
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?im)^content-length:[ \\t]*(\\d+)[ \\t]*$", java.util.regex.Pattern.MULTILINE)
+                .matcher(text.substring(0, headerEnd));
+        if (!m.find()) {
+            return message;
+        }
+        String correct = Integer.toString(bodyLength);
+        if (correct.equals(m.group(1))) {
+            return message;
+        }
+        int valueStart = m.start(1);
+        int valueEnd = m.end(1);
+        byte[] digits = correct.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        if (outShift != null && outShift.length >= 2) {
+            outShift[0] = valueEnd;
+            outShift[1] = digits.length - (valueEnd - valueStart);
+        }
+        byte[] out = new byte[message.length + digits.length - (valueEnd - valueStart)];
+        System.arraycopy(message, 0, out, 0, valueStart);
+        System.arraycopy(digits, 0, out, valueStart, digits.length);
+        System.arraycopy(message, valueEnd, out, valueStart + digits.length, message.length - valueEnd);
+        return out;
+    }
+
     byte[] patchRequest(byte[] rawContent, int beginIndex, int endIndex, byte[] contentPayload) {
         byte[] preContent = Arrays.copyOfRange(rawContent, 0, beginIndex);
         byte[] postContent = Arrays.copyOfRange(rawContent, endIndex, rawContent.length);
