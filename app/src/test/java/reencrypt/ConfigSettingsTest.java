@@ -28,31 +28,31 @@ class ConfigSettingsTest {
     @Test
     void onlyChangedSettingsAreExported() {
         Config config = new Config(fakePersistence());
-        config.setIntruderEncryptCommand("node enc.js {FILE}");
+        config.setIntruderPatternName("safra body");
 
         Map<String, Object> exported = config.exportSettings();
-        assertEquals(Set.of("intruderEncryptCommand"), exported.keySet());
-        assertEquals("node enc.js {FILE}", exported.get("intruderEncryptCommand"));
+        assertEquals(Set.of("intruderPatternName"), exported.keySet());
+        assertEquals("safra body", exported.get("intruderPatternName"));
     }
 
     @Test
     void importRestoresDefaultsForKeysTheFileOmits() throws Exception {
         Config config = new Config(fakePersistence());
-        config.setIntruderEncryptCommand("stale");
+        config.setIntruderPatternName("stale");
         config.setRepeaterEncryptOnlyOnModification(false);
 
         // The block is authoritative: repeaterEncryptOnlyOnModification is absent, so it resets.
-        config.importSettings(Map.of("intruderEncryptCommand", "fresh"));
+        config.importSettings(Map.of("intruderPatternName", "fresh"));
 
-        assertEquals(Set.of("intruderEncryptCommand"), config.exportSettings().keySet());
-        assertEquals("fresh", config.getIntruderEncryptCommand());
+        assertEquals(Set.of("intruderPatternName"), config.exportSettings().keySet());
+        assertEquals("fresh", config.getIntruderPatternName());
         assertTrue(config.isRepeaterEncryptOnlyOnModification());
     }
 
     @Test
     void exportImportRoundTripsThroughAFile() throws Exception {
         Config source = new Config(fakePersistence());
-        source.setIntruderEncryptCommand("node enc.js {FILE}");
+        source.setIntruderPatternName("safra body");
         String json = ConfigJson.toFile(java.util.List.of(), source.exportSettings(), false);
 
         // The machine-specific log path must not travel with an untouched config.

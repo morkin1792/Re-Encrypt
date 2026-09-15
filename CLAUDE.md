@@ -35,8 +35,8 @@ Requires Java 21+ and Burp Suite v2024.x+ (target Montoya API `2025.8`).
 | Suite config tab | `ui.SettingsTab` | The "Re:Encrypt" tab; defines patterns + all settings |
 | Request/Response editor tabs | `ui.RequestTab` / `ui.ResponseTab` → `ui.RequestResponseTab` | Per-message custom editor (Repeater/Proxy): decrypts on display, re-encrypts on send |
 | Proxy patching | `ProxyHandler` | "Patch proxy": decrypt+re-encrypt in-flight for patterns with `patchProxy` on |
-| Intruder auto en/decrypt | `IntruderHandler` (`HttpHandler`) | Encrypts Intruder requests / decrypts Intruder responses |
-| Intruder payload processor | `IntruderPayloadProcessor` | Encrypts individual payloads |
+| Intruder response decrypt | `IntruderHandler` (`HttpHandler`) | Decrypts Intruder responses so matches read against plaintext |
+| Intruder payload processor | `IntruderPayloadProcessor` | Encrypts each payload with the pattern named by `Config.getIntruderPattern()`; the Burp payload-processing rule is its only on/off switch |
 
 ### Core flow (`ReEncrypt`)
 
@@ -97,9 +97,10 @@ code is exercised on every save instead of only when someone clicks Export.
   tick, not only when the file changes: the file is the source of truth for the patterns it names, so
   a pattern edited or deleted inside Burp is restored on the next check. `Config.mergePatternsByName`
   reports whether anything actually moved (it diffs the serialized list), and a tick that changed
-  nothing stays silent — no log line, no table rebuild, no persistence write. Everything it applies is
-  forced `enabled`: a watched file is meant to be in force, so a pattern switched off in the table is
-  switched back on at the next check. `tick()` catches **`Throwable`** and lets nothing escape: an exception out of a
+  nothing stays silent — no log line, no table rebuild, no persistence write. Auto-load is the **only**
+  reader of a pattern's `enabled` field: absent means enabled (so a watched file is in force by
+  default), and a producer can park one entry with `"enabled": false`. The manual import ignores the
+  field — there the dialog's checkbox decides — and export never writes it. `tick()` catches **`Throwable`** and lets nothing escape: an exception out of a
   scheduled task cancels the whole schedule silently, which looks exactly like "auto-load ran once and
   then stopped" — the same shape as an `Error` killing a hand-rolled poll thread. **`App` registers an
   unloading handler** that stops it; without one, every extension reload left the previous watcher
@@ -134,6 +135,14 @@ Two execution paths: `execute()` merges stderr into stdout so command errors sur
 ### Conventions / gotchas
 
 - Handlers compare an XXH3 hash of content before vs. after patching and only replace the message when it changed; they also recompute `Content-Length` on the new request/response.
+- **A user's capture regex can hang Burp.** `searchPattern` runs several times per message on every
+  surface, so a badly shaped one — classically an unanchored `[A-Za-z0-9+/=]{20,}` scanning a long
+  base64 header, which backtracks quadratically — stalls the editor with no visible cause (measured:
+  2019 ms vs 2 ms for the same match anchored on a literal prefix). Every match is timed; one that
+  exceeds `ReEncrypt.SLOW_MATCH_MILLIS` marks the regex as slow **for the session** and logs once. The
+  editor alert reads that sticky flag rather than a duration: a regex is matched several times per
+  message and every run after the first is warm, so whatever the UI could measure would understate the
+  delay the user actually waited on.
 - Editors read/write bytes using the `Windows-1252` charset to round-trip binary faithfully (see `RequestResponseTab.setBytes`).
 - `Config.getPatternsVersion()` is bumped on every pattern change; each editor tab remembers the version
   it last rendered and re-decodes when it moves. It replaced a consume-once boolean, which the first

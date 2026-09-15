@@ -619,7 +619,7 @@ public class CipherAnalyzer {
         }
         sb.append(".\n\n");
         sb.append("Answer with a Re:Encrypt pattern file the user can import directly via\n");
-        sb.append("Capturing + Processing > Import (or General Settings > Import all).\n\n");
+        sb.append("Adding Patterns > Import (or General Settings > Import all).\n\n");
         sb.append("Format, shown with a common case (AES-256-CBC, IV prefixed to the ciphertext, Base64):\n");
         sb.append("{\n");
         sb.append("  \"reencrypt\": 1,\n");
@@ -644,6 +644,11 @@ public class CipherAnalyzer {
         sb.append("pattern a distinct name - a name that already exists replaces that pattern.\n\n");
         sb.append("Allowed values: engineId aes | rsa | null (null = custom shell commands in ");
         sb.append("\"decCommand\"/\"encCommand\" using the {DATA} or {FILE} placeholder). ");
+        sb.append("If the goal is to TAMPER with traffic rather than just read it, put the change in the ");
+        sb.append("encrypt command, never in the decrypt one: with \"patchProxy\" the decrypt output is fed ");
+        sb.append("straight to encrypt, so a rewrite on decrypt does reach the wire but also rewrites every ");
+        sb.append("later view of that message - the stored original decrypts to the tampered value and the ");
+        sb.append("before/after evidence is lost. ");
         sb.append("patternType HEADER | PARAMETER_URL_ENCODED | PARAMETER_JSON | WHOLE_BODY | CUSTOM_REGEX ");
         sb.append("(captureRegex must contain capturing group 1 - that span is what gets decrypted). ");
         sb.append("captureRegex is the regex the UI builds from patternType + patternInput, so keep the two ");

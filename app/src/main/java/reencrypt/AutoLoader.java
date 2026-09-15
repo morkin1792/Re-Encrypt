@@ -18,9 +18,9 @@ import java.util.function.Consumer;
  * the patterns it names, so a pattern edited or deleted inside Burp comes back on the next check.
  * Each pattern replaces the configured one with the same name, in place, and anything new is
  * appended; patterns the file does not mention are left alone, so a producer can maintain a couple of
- * entries without owning the user's whole table. Everything it applies is enabled — the point of
- * pointing at a file is that the file runs — so a pattern switched off in the table is switched back
- * on at the next check. A {@code settings} block in an auto-loaded file is ignored; auto-load manages
+ * entries without owning the user's whole table. A pattern's `enabled` is taken from the file when it
+ * says so, and defaults to enabled when the field is absent — so a watched file is in force by
+ * default, and a producer can still park one entry with `"enabled": false`. A {@code settings} block in an auto-loaded file is ignored; auto-load manages
  * patterns only.
  * </p>
  *
@@ -40,7 +40,7 @@ public class AutoLoader {
 
     private volatile ScheduledExecutorService scheduler;
     private volatile Path watched;
-    private volatile long lastCheckMillis;
+    private volatile long lastReloadMillis;
     private volatile int reloads;
     private volatile String lastError;
 
@@ -63,10 +63,11 @@ public class AutoLoader {
         if (scheduler == null || scheduler.isShutdown()) {
             return "Not running.";
         }
-        String last = lastCheckMillis == 0 ? "not yet"
-                : java.time.LocalTime.ofInstant(java.time.Instant.ofEpochMilli(lastCheckMillis),
+        // The reload time is what the user is actually waiting on.
+        String last = lastReloadMillis == 0 ? "none yet"
+                : java.time.LocalTime.ofInstant(java.time.Instant.ofEpochMilli(lastReloadMillis),
                         java.time.ZoneId.systemDefault()).withNano(0).toString();
-        return "Watching · last check: " + last + " · reloads: " + reloads
+        return "Watching · last reload: " + last + " · reloads: " + reloads
                 + (lastError == null ? "" : " · last error: " + lastError);
     }
 
@@ -78,6 +79,8 @@ public class AutoLoader {
         int seconds = Math.max(1, intervalSeconds);
         watched = resolve(path);
         lastError = null;
+        reloads = 0;
+        lastReloadMillis = 0;
         // Say which file, resolved: a path that silently does not exist (a "~" that was never expanded,
         // a relative path against Burp's working directory) is otherwise invisible.
         log.accept("auto-load: watching " + watched.toAbsolutePath() + " every " + seconds + "s");
@@ -121,7 +124,6 @@ public class AutoLoader {
     private void tick() {
         try {
             byte[] content = Files.readAllBytes(watched);
-            lastCheckMillis = System.currentTimeMillis();
             reload(new String(content, StandardCharsets.UTF_8));
             lastError = null;
         } catch (Throwable t) {
@@ -140,11 +142,10 @@ public class AutoLoader {
             return;
         }
 
-        // Auto-loaded patterns are always live: a file that is being watched is meant to be in force,
-        // and a pattern that landed disabled would fail silently for as long as nobody noticed.
-        for (CapturePattern pattern : result.patterns) {
-            pattern.setEnabled(true);
-        }
+        // `enabled` is honoured here and only here: a producer maintaining this file can park a
+        // pattern with "enabled": false. ConfigJson defaults it to true when the field is absent, so a
+        // watched file is still in force by default. (The manual import ignores the field entirely —
+        // there the dialog's checkbox decides.)
         Config.MergeResult merge = config.mergePatternsByName(result.patterns);
         if (!merge.changed) {
             // Applied, but identical to what was already there: stay silent rather than log and
@@ -153,6 +154,7 @@ public class AutoLoader {
         }
 
         reloads++;
+        lastReloadMillis = System.currentTimeMillis();
         String message = "auto-load: " + merge.replaced + " replaced, " + merge.added + " added";
         if (!result.errors.isEmpty()) {
             message += ", " + result.errors.size() + " skipped";

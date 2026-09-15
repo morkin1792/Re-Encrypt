@@ -25,10 +25,12 @@ public class App implements BurpExtension {
         for (String error : config.getLoadErrors()) {
             api.logging().logToError(error);
         }
-        SettingsTab settingsTab = new SettingsTab(api, config);
+        // ReEncrypt first: the settings tab's payload-processor test box encrypts through the very
+        // same object the processor uses, so what it shows is what Intruder will send.
+        var reEncrypt = new ReEncrypt(config);
+        SettingsTab settingsTab = new SettingsTab(api, config, reEncrypt);
         api.userInterface().registerSuiteTab(name, settingsTab.uiComponent());
 
-        var reEncrypt = new ReEncrypt(config);
         api.userInterface().registerHttpRequestEditorProvider(new HttpRequestEditorProvider() {
             public ExtensionProvidedHttpRequestEditor provideHttpRequestEditor(EditorCreationContext creationContext) {
                 return new RequestTab(api, reEncrypt, creationContext.editorMode() == EditorMode.READ_ONLY,

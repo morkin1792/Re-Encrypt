@@ -94,7 +94,7 @@ public class ReEncrypt {
      * message, on every tool, so a badly shaped one (an unanchored {@code [A-Za-z0-9+/=]{20,}} over a
      * long base64 header backtracks quadratically) freezes the editor with no clue as to why.
      */
-    public static final long SLOW_MATCH_MILLIS = 250;
+    public static final long SLOW_MATCH_MILLIS = 750;
     /**
      * Regexes seen to be slow at least once. Sticky on purpose: a regex is matched several times per
      * message, and every run after the first is warm, so timing the run that happens to reach the UI

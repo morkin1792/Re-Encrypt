@@ -38,8 +38,9 @@ public class Config {
     PersistedObject persisted;
     DecryptionCache decryptionCache;
     // Intruder settings
-    boolean enableIntruderResponseDecrypt, enableIntruderRequestEncrypt, enableIntruderPayloadProcessor;
-    String intruderEncryptCommand;
+    boolean enableIntruderResponseDecrypt;
+    /** Name of the pattern the Intruder payload processor encrypts with ("" = none selected). */
+    String intruderPatternName;
     // Repeater settings
     boolean repeaterEncryptOnlyOnModification;
     // Auto-load: keep patterns in sync with a JSON file maintained outside Burp
@@ -65,9 +66,7 @@ public class Config {
         this.decryptionCache = new DecryptionCache(persisted);
         // Intruder settings
         this.enableIntruderResponseDecrypt = getPreference("enableIntruderResponseDecrypt", true);
-        this.enableIntruderRequestEncrypt = getPreference("enableIntruderRequestEncrypt", true);
-        this.enableIntruderPayloadProcessor = getPreference("enableIntruderPayloadProcessor", false);
-        this.intruderEncryptCommand = getPreference("intruderEncryptCommand", "");
+        this.intruderPatternName = getPreference("intruderPatternName", "");
         // Repeater settings
         this.repeaterEncryptOnlyOnModification = getPreference("repeaterEncryptOnlyOnModification", true);
         // Auto-load
@@ -119,9 +118,7 @@ public class Config {
         defaults.put("reqPrintEditorHighlightColor", Color.YELLOW.getRGB());
         defaults.put("resPrintEditorHighlightColor", Color.YELLOW.getRGB());
         defaults.put("enableIntruderResponseDecrypt", true);
-        defaults.put("enableIntruderRequestEncrypt", true);
-        defaults.put("enableIntruderPayloadProcessor", false);
-        defaults.put("intruderEncryptCommand", "");
+        defaults.put("intruderPatternName", "");
         defaults.put("repeaterEncryptOnlyOnModification", true);
         defaults.put("autoLoadEnabled", false);
         defaults.put("autoLoadPath", "");
@@ -158,9 +155,7 @@ public class Config {
         settings.put("reqPrintEditorHighlightColor", reqPrintEditorHighlightColor.getRGB());
         settings.put("resPrintEditorHighlightColor", resPrintEditorHighlightColor.getRGB());
         settings.put("enableIntruderResponseDecrypt", enableIntruderResponseDecrypt);
-        settings.put("enableIntruderRequestEncrypt", enableIntruderRequestEncrypt);
-        settings.put("enableIntruderPayloadProcessor", enableIntruderPayloadProcessor);
-        settings.put("intruderEncryptCommand", intruderEncryptCommand);
+        settings.put("intruderPatternName", intruderPatternName);
         settings.put("repeaterEncryptOnlyOnModification", repeaterEncryptOnlyOnModification);
         settings.put("autoLoadEnabled", autoLoadEnabled);
         settings.put("autoLoadPath", autoLoadPath);
@@ -194,9 +189,7 @@ public class Config {
                 case "reqPrintEditorHighlightColor" -> updatePrintEditorHighlightColor(new Color((Integer) v, true), true);
                 case "resPrintEditorHighlightColor" -> updatePrintEditorHighlightColor(new Color((Integer) v, true), false);
                 case "enableIntruderResponseDecrypt" -> setIntruderResponseDecrypt((Boolean) v);
-                case "enableIntruderRequestEncrypt" -> setIntruderRequestEncrypt((Boolean) v);
-                case "enableIntruderPayloadProcessor" -> setIntruderPayloadProcessor((Boolean) v);
-                case "intruderEncryptCommand" -> setIntruderEncryptCommand((String) v);
+                case "intruderPatternName" -> setIntruderPatternName((String) v);
                 case "repeaterEncryptOnlyOnModification" -> setRepeaterEncryptOnlyOnModification((Boolean) v);
                 // The three auto-load keys arrive separately; setAutoLoad takes all three, so each one
                 // re-applies the other two from their current (already updated) values.
@@ -439,31 +432,26 @@ public class Config {
         this.persisted.setBoolean("enableIntruderResponseDecrypt", enabled);
     }
 
-    public boolean isIntruderRequestEncryptEnabled() {
-        return enableIntruderRequestEncrypt;
+    /** Name of the pattern the payload processor encrypts with; "" when none is selected. */
+    public String getIntruderPatternName() {
+        return intruderPatternName;
     }
 
-    public void setIntruderRequestEncrypt(boolean enabled) {
-        this.enableIntruderRequestEncrypt = enabled;
-        this.persisted.setBoolean("enableIntruderRequestEncrypt", enabled);
+    public void setIntruderPatternName(String name) {
+        this.intruderPatternName = name == null ? "" : name;
+        this.persisted.setString("intruderPatternName", this.intruderPatternName);
     }
 
-    public boolean isIntruderPayloadProcessorEnabled() {
-        return enableIntruderPayloadProcessor;
-    }
-
-    public void setIntruderPayloadProcessor(boolean enabled) {
-        this.enableIntruderPayloadProcessor = enabled;
-        this.persisted.setBoolean("enableIntruderPayloadProcessor", enabled);
-    }
-
-    public String getIntruderEncryptCommand() {
-        return intruderEncryptCommand;
-    }
-
-    public void setIntruderEncryptCommand(String command) {
-        this.intruderEncryptCommand = command;
-        this.persisted.setString("intruderEncryptCommand", command);
+    /**
+     * The pattern the Intruder payload processor encrypts with, or null when none is selected or the
+     * selected name no longer exists (renamed or deleted since it was picked).
+     */
+    public CapturePattern getIntruderPattern() {
+        if (intruderPatternName == null || intruderPatternName.isEmpty()) {
+            return null;
+        }
+        int i = indexOfName(intruderPatternName);
+        return i < 0 ? null : patterns.get(i);
     }
 
     // Repeater settings getters and setters

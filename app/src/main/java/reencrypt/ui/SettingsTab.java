@@ -4,6 +4,7 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
 
 import burp.api.montoya.MontoyaApi;
+import reencrypt.App;
 import reencrypt.CapturePattern;
 import reencrypt.AutoLoader;
 import reencrypt.Config;
@@ -12,6 +13,8 @@ import reencrypt.engine.CryptoEngine;
 import reencrypt.engine.CryptoEngineRegistry;
 
 import javax.swing.event.DocumentEvent;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
@@ -70,7 +73,9 @@ import javax.swing.KeyStroke;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.BorderFactory;
+import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
@@ -86,6 +91,7 @@ public class SettingsTab {
     private Font hackFont = new Font("Hack", Font.BOLD, 18);
     private MontoyaApi api;
     private Config config;
+    private reencrypt.ReEncrypt reEncrypt;
     // Guards the table's model listener against programmatic rebuilds in updateTable
     private boolean suppressTableEvents;
     // Single combined patterns table, kept so the Analyze tab can refresh it
@@ -101,10 +107,17 @@ public class SettingsTab {
     private char currentSplitDelimiter; // delimiter of the split currently shown, or '\0'
     private String analyzeUrl; // URL the analyzer's content came from, for seeding a pattern's target
     private javax.swing.Timer autoLoadStatusTimer;
+    /**
+     * Re-reads the payload-processor dropdown, its warning and its test sample. Set when the Intruder
+     * screen is built, run from {@link #reloadPatternTable()} so any pattern change - add, edit, clone,
+     * remove, reorder, import, auto-load - is reflected there too.
+     */
+    private Runnable intruderPatternRefresh;
 
-    public SettingsTab(MontoyaApi api, Config config) {
+    public SettingsTab(MontoyaApi api, Config config, reencrypt.ReEncrypt reEncrypt) {
         this.api = api;
         this.config = config;
+        this.reEncrypt = reEncrypt;
     }
 
     public void setAutoLoader(AutoLoader autoLoader) {
@@ -125,11 +138,11 @@ public class SettingsTab {
         JTabbedPane tabbedPane = new JTabbedPane();
         this.mainTabbedPane = tabbedPane;
 
-        tabbedPane.add("Capturing + Processing", createCaptureDataScreen());
+        tabbedPane.add("Adding Patterns", createCaptureDataScreen());
 
-        tabbedPane.add("Intruder Settings", createIntruderScreen());
+        tabbedPane.add("Configuring Intruder", createIntruderScreen());
 
-        tabbedPane.add("(TODO) WebSockets ", null);
+        tabbedPane.add("(TODO)", null);
         tabbedPane.setEnabledAt(tabbedPane.getTabCount() - 1, false);
 
         tabbedPane.add(SETTINGS_TAB_TITLE, createSettingsScreen());
@@ -524,6 +537,9 @@ public class SettingsTab {
             }
         } finally {
             suppressTableEvents = false;
+        }
+        if (intruderPatternRefresh != null) {
+            intruderPatternRefresh.run();
         }
     }
 
@@ -963,19 +979,293 @@ public class SettingsTab {
         return false;
     }
 
+    /**
+     * Live sample for the payload processor: type a payload, see exactly what Intruder would send.
+     * It encrypts through the same {@link reencrypt.ReEncrypt#encrypt(CapturePattern, String)} the
+     * processor calls, so a difference here is a real difference, not a second implementation drifting.
+     *
+     * <p>
+     * A pattern can shell out, which can block for a while, so the work never runs on the EDT and
+     * typing is debounced rather than firing a process per keystroke.
+     * </p>
+     *
+     * @param refreshHolder filled with the re-run hook so the pattern dropdown can trigger it too
+     */
+    private JPanel buildPayloadTestBox(Runnable[] refreshHolder) {
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        box.setAlignmentY(Component.TOP_ALIGNMENT);
+        box.setBorder(BorderFactory.createTitledBorder("Test the payload processor"));
+        box.setMaximumSize(new Dimension(800, 150));
+
+        JTextField testInput = new JTextField("{\"user\":\"jodson\"}");
+        testInput.setAlignmentX(Component.LEFT_ALIGNMENT);
+        testInput.setMaximumSize(new Dimension(780, 26));
+        testInput.setToolTipText("A sample payload; the result below is what Intruder would send.");
+
+        // Not a text field: ciphertext is long and arbitrary, so it wraps freely and stays selectable
+        // while looking like plain text on the panel rather than another input.
+        JTextArea testOutput = new JTextArea();
+        testOutput.setEditable(false);
+        testOutput.setLineWrap(true);
+        testOutput.setWrapStyleWord(false); // ciphertext has no words to break on
+        testOutput.setOpaque(false);
+        testOutput.setBorder(null);
+        Color okColor = testOutput.getForeground();
+
+        JScrollPane outputScroll = new JScrollPane(testOutput,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        outputScroll.setBorder(null);
+        outputScroll.setOpaque(false);
+        outputScroll.getViewport().setOpaque(false);
+        outputScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        outputScroll.setPreferredSize(new Dimension(780, 54));
+        outputScroll.setMaximumSize(new Dimension(780, 70));
+
+        JLabel inLabel = new JLabel("Payload");
+        inLabel.setFont(inLabel.getFont().deriveFont(11f));
+        inLabel.setForeground(Color.GRAY);
+        inLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel outLabel = new JLabel("Result");
+        outLabel.setFont(outLabel.getFont().deriveFont(11f));
+        outLabel.setForeground(Color.GRAY);
+        outLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        outLabel.setBorder(new EmptyBorder(4, 0, 0, 0));
+
+        box.add(inLabel);
+        box.add(testInput);
+        box.add(outLabel);
+        box.add(outputScroll);
+
+        Runnable runTest = () -> {
+            CapturePattern pattern = config.getIntruderPattern();
+            if (pattern == null) {
+                testOutput.setForeground(Color.GRAY);
+                testOutput.setText("(no pattern selected)");
+                return;
+            }
+            // Read the field on the EDT; the worker only touches the copy.
+            final String sample = testInput.getText();
+            new SwingWorker<String[], Void>() {
+                @Override
+                protected String[] doInBackground() {
+                    try {
+                        return new String[] { reEncrypt.encrypt(pattern, sample), null };
+                    } catch (Exception ex) {
+                        String message = ex.getMessage();
+                        return new String[] { null, message == null ? ex.toString() : message };
+                    }
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        String[] result = get();
+                        if (result[1] == null) {
+                            testOutput.setForeground(okColor);
+                            testOutput.setText(result[0]);
+                        } else {
+                            testOutput.setForeground(ERROR_COLOR);
+                            testOutput.setText(result[1]);
+                        }
+                        testOutput.setCaretPosition(0);
+                    } catch (Exception ignored) {
+                        // Worker cancelled or interrupted: leave whatever is on screen.
+                    }
+                }
+            }.execute();
+        };
+
+        // Coalesce keystrokes: one run once typing pauses, not one process per character.
+        javax.swing.Timer debounce = new javax.swing.Timer(400, e -> runTest.run());
+        debounce.setRepeats(false);
+        testInput.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) {
+                debounce.restart();
+            }
+
+            public void removeUpdate(DocumentEvent e) {
+                debounce.restart();
+            }
+
+            public void insertUpdate(DocumentEvent e) {
+                debounce.restart();
+            }
+        });
+
+        refreshHolder[0] = runTest;
+        runTest.run();
+        return box;
+    }
+
     private JPanel createIntruderScreen() {
         JPanel mainPanel = new JPanel(new BorderLayout());
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
-        // Section title
-        JLabel titleLabel = new JLabel("• Intruder Settings");
-        titleLabel.setFont(hackFont);
-        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        titleLabel.setBorder(new EmptyBorder(0, 0, 15, 0));
-        panel.add(titleLabel);
+        // ===================== Encrypting: the payload processor =====================
+        // The bullet spans the whole section; below it the left column holds the controls and the right
+        // column the live sample, both starting on the same line.
+        JPanel encCol = new JPanel();
+        encCol.setLayout(new BoxLayout(encCol, BoxLayout.Y_AXIS));
+        encCol.setAlignmentY(Component.TOP_ALIGNMENT);
 
-        // Decrypt responses checkbox
+        JLabel encryptTitle = new JLabel("\u2022 Intruder Encrypting");
+        encryptTitle.setFont(hackFont);
+        encryptTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encryptTitle.setBorder(new EmptyBorder(0, 0, 15, 0));
+        panel.add(encryptTitle);
+
+        // The encryption itself comes from one of the configured patterns, so all there is to do here
+        // is pick it; adding the processor as an Intruder rule is what actually turns it on.
+        JLabel payloadTitle = new JLabel("Payload processor pattern");
+        payloadTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encCol.add(payloadTitle);
+
+        JLabel payloadExplanation = new JLabel(
+                "Encrypts each payload with the Pattern's Encryption mode you choose.");
+        payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
+        payloadExplanation.setForeground(Color.GRAY);
+        payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        payloadExplanation.setBorder(new EmptyBorder(0, 0, 5, 0));
+        encCol.add(payloadExplanation);
+
+        final String NO_PATTERN = "(none)";
+        // Filled in by buildPayloadTestBox below; the selection listener re-runs the sample through
+        // whichever pattern is now chosen.
+        final Runnable[] refreshTestBox = { () -> {
+        } };
+        JComboBox<String> patternCombo = new JComboBox<>();
+        JLabel patternWarningLabel = new JLabel(" ");
+        patternWarningLabel.setFont(patternWarningLabel.getFont().deriveFont(11f));
+
+        // Warn when the selection cannot actually encrypt: gone, or its encrypt side is unconfigured.
+        Runnable refreshPatternWarning = () -> {
+            String name = config.getIntruderPatternName();
+            if (name == null || name.isEmpty()) {
+                patternWarningLabel.setText(" ");
+                return;
+            }
+            CapturePattern p = config.getIntruderPattern();
+            if (p == null) {
+                patternWarningLabel.setText("\u26a0 Pattern \"" + name + "\" no longer exists.");
+                patternWarningLabel.setForeground(ERROR_COLOR);
+                return;
+            }
+            // Payload processing only ever encrypts, so the decrypt side is passed as non-blank to keep
+            // warningFor from reporting a missing decrypt command that would not be used anyway.
+            String warn = p.usesEngine()
+                    ? warningFor(true, CryptoEngineRegistry.get(p.getEngineId()),
+                            p.getEngineParams() != null ? new HashMap<>(p.getEngineParams()) : null, null, null)
+                    : warningFor(false, null, null, "(unused)", p.getEncCommand());
+            if (warn != null) {
+                patternWarningLabel.setText("\u26a0 " + capitalize(warn));
+                patternWarningLabel.setForeground(ERROR_COLOR);
+            } else {
+                patternWarningLabel.setText(" ");
+            }
+        };
+
+        // Repopulating fires selection events of its own (emptying the model deselects, and the first
+        // addItem re-selects). Without this guard the listener below would write those intermediate
+        // selections to the config, momentarily storing "" over the real choice.
+        final boolean[] repopulating = { false };
+
+        // Rebuilt every time the list drops down, so patterns added or renamed meanwhile show up
+        // without needing to track pattern changes from here.
+        Runnable reloadPatternItems = () -> {
+            String selected = config.getIntruderPatternName();
+            repopulating[0] = true;
+            try {
+                patternCombo.removeAllItems();
+                patternCombo.addItem(NO_PATTERN);
+                boolean found = false;
+                for (CapturePattern p : config.getPatterns()) {
+                    patternCombo.addItem(p.getName());
+                    if (p.getName().equals(selected)) {
+                        found = true;
+                    }
+                }
+                // Keep a stale selection visible rather than silently dropping it.
+                if (!found && selected != null && !selected.isEmpty()) {
+                    patternCombo.addItem(selected);
+                }
+                patternCombo.setSelectedItem(
+                        selected == null || selected.isEmpty() ? NO_PATTERN : selected);
+            } finally {
+                repopulating[0] = false;
+            }
+        };
+        reloadPatternItems.run();
+        refreshPatternWarning.run();
+
+        patternCombo.addPopupMenuListener(new PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                reloadPatternItems.run();
+            }
+
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+            }
+
+            public void popupMenuCanceled(PopupMenuEvent e) {
+            }
+        });
+        patternCombo.addActionListener(e -> {
+            if (repopulating[0]) {
+                return;
+            }
+            Object sel = patternCombo.getSelectedItem();
+            if (sel == null) {
+                return;
+            }
+            config.setIntruderPatternName(NO_PATTERN.equals(sel) ? "" : sel.toString());
+            refreshPatternWarning.run();
+            refreshTestBox[0].run();
+        });
+
+        JPanel patternRow = new JPanel();
+        patternRow.setLayout(new BoxLayout(patternRow, BoxLayout.X_AXIS));
+        patternRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        patternRow.setMaximumSize(new Dimension(800, 30));
+        patternRow.add(patternCombo);
+        patternRow.add(Box.createHorizontalStrut(8));
+        patternRow.add(patternWarningLabel);
+        patternRow.add(Box.createHorizontalGlue());
+        encCol.add(patternRow);
+
+        JLabel payloadHowTo = new JLabel(
+                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" and choose "
+                        + App.name + ".");
+        payloadHowTo.setFont(payloadHowTo.getFont().deriveFont(11f));
+        payloadHowTo.setForeground(Color.GRAY);
+        payloadHowTo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        payloadHowTo.setBorder(new EmptyBorder(5, 0, 25, 0));
+        encCol.add(payloadHowTo);
+
+        // One hook for the whole section: the list itself, the warning about the chosen pattern, and
+        // the sample output (an edited pattern encrypts differently).
+        intruderPatternRefresh = () -> {
+            reloadPatternItems.run();
+            refreshPatternWarning.run();
+            refreshTestBox[0].run();
+        };
+
+        JPanel encRow = new JPanel();
+        encRow.setLayout(new BoxLayout(encRow, BoxLayout.X_AXIS));
+        encRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        encRow.add(encCol);
+        encRow.add(Box.createHorizontalStrut(30));
+        encRow.add(buildPayloadTestBox(refreshTestBox));
+        encRow.add(Box.createHorizontalGlue());
+        panel.add(encRow);
+
+        // ===================== Decrypting: responses =====================
+        JLabel decryptTitle = new JLabel("\u2022 Intruder Decrypting");
+        decryptTitle.setFont(hackFont);
+        decryptTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        decryptTitle.setBorder(new EmptyBorder(0, 0, 15, 0));
+        panel.add(decryptTitle);
+
         JCheckBox decryptResponsesCheckbox = new JCheckBox("Auto-decrypt intruder responses");
         decryptResponsesCheckbox.setSelected(config.isIntruderResponseDecryptEnabled());
         decryptResponsesCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -983,7 +1273,6 @@ public class SettingsTab {
                 .addActionListener(e -> config.setIntruderResponseDecrypt(decryptResponsesCheckbox.isSelected()));
         panel.add(decryptResponsesCheckbox);
 
-        // Explanation for decrypt responses
         JLabel decryptExplanation = new JLabel(
                 "Automatically DECRYPT RESPONSES. It will only affect targets defined in the patterns' target scope.");
         decryptExplanation.setFont(decryptExplanation.getFont().deriveFont(11f));
@@ -992,120 +1281,8 @@ public class SettingsTab {
         decryptExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
         panel.add(decryptExplanation);
 
-        // Encrypt requests checkbox
-        JCheckBox encryptRequestsCheckbox = new JCheckBox(
-                "Auto-encrypt intruder requests (you have to send intruder payloads in PLAINTEXT)");
-        encryptRequestsCheckbox.setSelected(config.isIntruderRequestEncryptEnabled());
-        encryptRequestsCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(encryptRequestsCheckbox);
-
-        // Explanation for encrypt requests
-        JLabel encryptExplanation = new JLabel(
-                "Automatically ENCRYPT REQUESTS. It will only affect targets defined in the patterns' target scope.");
-        encryptExplanation.setFont(encryptExplanation.getFont().deriveFont(11f));
-        encryptExplanation.setForeground(Color.GRAY);
-        encryptExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
-        encryptExplanation.setBorder(new EmptyBorder(0, 24, 2, 0));
-        panel.add(encryptExplanation);
-
-        JLabel encryptExplanation2 = new JLabel(
-                "If you need to see the ciphertext sent to the target, use Burp Suite Logger (CTRL+SHIFT+L)");
-        encryptExplanation2.setFont(encryptExplanation2.getFont().deriveFont(11f));
-        encryptExplanation2.setForeground(Color.GRAY);
-        encryptExplanation2.setAlignmentX(Component.LEFT_ALIGNMENT);
-        encryptExplanation2.setBorder(new EmptyBorder(0, 24, 15, 0));
-        panel.add(encryptExplanation2);
-
-        // Payload processor checkbox
-        JCheckBox payloadProcessorCheckbox = new JCheckBox("Encrypt using payload processor");
-        payloadProcessorCheckbox.setSelected(config.isIntruderPayloadProcessorEnabled());
-        payloadProcessorCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(payloadProcessorCheckbox);
-
-        // Explanation for payload processor
-        JLabel payloadExplanation = new JLabel(
-                "In Intruder, go to \"Payload processing\" > \"Add\" > \"Invoke Burp extension\" to make command below transform the payload");
-        payloadExplanation.setFont(payloadExplanation.getFont().deriveFont(11f));
-        payloadExplanation.setForeground(Color.GRAY);
-        payloadExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
-        payloadExplanation.setBorder(new EmptyBorder(0, 24, 0, 0));
-        panel.add(payloadExplanation);
-
-        // Encrypt command text field
-        JPanel commandPanel = new JPanel(new BorderLayout(5, 0));
-        commandPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        commandPanel.setBorder(new EmptyBorder(0, 24, 5, 5));
-        commandPanel.setMaximumSize(new Dimension(800, 45));
-
-        JLabel commandLabel = new JLabel("Encrypt Command:");
-        Color enabledLabelColor = commandLabel.getForeground();
-        boolean payloadProcessorEnabled = config.isIntruderPayloadProcessorEnabled();
-        commandLabel.setForeground(payloadProcessorEnabled ? enabledLabelColor : Color.GRAY);
-
-        JTextField commandField = new JTextField(config.getIntruderEncryptCommand());
-        commandField.setEnabled(payloadProcessorEnabled);
-        commandField.setToolTipText(
-                "Command to use in Intruder Payload Processor. {DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data.   # hello jodson");
-        String commandFieldPlaceholder = "python /tmp/YOUR_SCRIPT.js {FILE} ";
-        setPlaceholder(commandField, commandFieldPlaceholder);
-        commandField.getDocument().addDocumentListener(new DocumentListener() {
-            public void changedUpdate(DocumentEvent e) {
-                save();
-            }
-
-            public void removeUpdate(DocumentEvent e) {
-                save();
-            }
-
-            public void insertUpdate(DocumentEvent e) {
-                save();
-            }
-
-            private void save() {
-                String text = commandField.getText();
-                if (!text.equals(commandFieldPlaceholder)) {
-                    config.setIntruderEncryptCommand(text);
-                }
-            }
-        });
-
-        commandPanel.add(commandLabel, BorderLayout.WEST);
-        commandPanel.add(commandField, BorderLayout.CENTER);
-        panel.add(commandPanel);
-
-        // Explanation for payload processor
-        JLabel commandExplanation = new JLabel(
-                "{DATA} will be replaced by the captured data, {FILE} will be replaced by the file path of an auto-created file containing the captured data");
-        commandExplanation.setFont(commandExplanation.getFont().deriveFont(11f));
-        commandExplanation.setForeground(Color.GRAY);
-        commandExplanation.setAlignmentX(Component.LEFT_ALIGNMENT);
-        commandExplanation.setBorder(new EmptyBorder(0, 24, 15, 0));
-        panel.add(commandExplanation);
-
-        // Mutual exclusion logic
-        encryptRequestsCheckbox.addActionListener(e -> {
-            if (encryptRequestsCheckbox.isSelected()) {
-                payloadProcessorCheckbox.setSelected(false);
-                config.setIntruderPayloadProcessor(false);
-                commandField.setEnabled(false);
-                commandLabel.setForeground(Color.GRAY);
-            }
-            config.setIntruderRequestEncrypt(encryptRequestsCheckbox.isSelected());
-        });
-
-        payloadProcessorCheckbox.addActionListener(e -> {
-            if (payloadProcessorCheckbox.isSelected()) {
-                encryptRequestsCheckbox.setSelected(false);
-                config.setIntruderRequestEncrypt(false);
-            }
-            boolean enabled = payloadProcessorCheckbox.isSelected();
-            commandField.setEnabled(enabled);
-            commandLabel.setForeground(enabled ? enabledLabelColor : Color.GRAY);
-            config.setIntruderPayloadProcessor(enabled);
-        });
-
         mainPanel.add(panel, BorderLayout.NORTH);
-        return addPanelInternalText("Optionally, adjust intruder-specific settings", mainPanel);
+        return addPanelInternalText("Adjust how Intruder encrypts payloads and decrypts responses here", mainPanel);
     }
 
 
@@ -1930,6 +2107,16 @@ public class SettingsTab {
         browse.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setDialogTitle("Auto-load file");
+            chooser.setFileFilter(new FileNameExtensionFilter("JSON files", "json"));
+            // Open where the file currently in the field lives — picking the next one almost always
+            // means picking a sibling of it.
+            String current = pathField.getText().trim();
+            if (!current.isEmpty()) {
+                java.io.File parent = new java.io.File(current).getAbsoluteFile().getParentFile();
+                if (parent != null && parent.isDirectory()) {
+                    chooser.setCurrentDirectory(parent);
+                }
+            }
             if (chooser.showOpenDialog(uiComponent()) == JFileChooser.APPROVE_OPTION) {
                 pathField.setText(chooser.getSelectedFile().getPath());
             }
@@ -1985,8 +2172,10 @@ public class SettingsTab {
 
         JLabel hint = new JLabel(
                 "Patterns with same name will be replaced and enabled. Settings inside this JSON will be ignored.");
+        hint.setFont(hint.getFont().deriveFont(11f));
+        hint.setForeground(Color.GRAY);
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hint.setBorder(new EmptyBorder(4, 0, 0, 0));
+        hint.setBorder(new EmptyBorder(4, 24, 0, 0));
         panel.add(hint);
     }
 

@@ -28,6 +28,8 @@ public class RequestResponseEditor {
     int size;
 
     // Alert state
+    /** Set when this editor decodes the message on screen; see {@link #isDecoded()}. */
+    private boolean decoded = false;
     private String decodeAlertMessage = "";
     private Color decodeAlertColor = Color.BLACK;
     private String encodeAlertMessage = "";
@@ -158,6 +160,21 @@ public class RequestResponseEditor {
 
     public void setPattern(CapturePattern pattern) {
         this.pattern = pattern;
+    }
+
+    /**
+     * Whether this editor is showing plaintext decoded from the message currently on screen.
+     *
+     * <p>An editor exists for every active pattern, including patterns scoped to other endpoints, and
+     * such an editor keeps whatever it decoded from an earlier message. Only an editor that decoded the
+     * current one may re-encrypt back into it.
+     */
+    public boolean isDecoded() {
+        return decoded;
+    }
+
+    public void setDecoded(boolean decoded) {
+        this.decoded = decoded;
     }
 
     public CapturePattern getPattern() {

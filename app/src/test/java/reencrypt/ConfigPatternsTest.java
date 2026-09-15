@@ -135,4 +135,24 @@ class ConfigPatternsTest {
         String json = ConfigJson.toFile(config.getPatterns(), null, false);
         assertEquals("a(req) x(resp) b(req)", names(ConfigJson.fromFile(json).patterns));
     }
+
+    /**
+     * The payload processor stores a pattern *name*, so it has to survive the list changing under it:
+     * renaming or deleting the chosen pattern must read back as "nothing selected", not blow up.
+     */
+    @Test
+    void intruderPatternResolvesByNameAndSurvivesItsPatternDisappearing() {
+        Config config = new Config(persistence());
+        config.addPattern(pattern("body", true));
+        config.setIntruderPatternName("body");
+
+        assertEquals("body", config.getIntruderPattern().getName());
+
+        config.removePattern(0);
+        assertNull(config.getIntruderPattern(), "a deleted pattern must resolve to null, not throw");
+        assertEquals("body", config.getIntruderPatternName(), "the name is kept so the UI can warn");
+
+        config.setIntruderPatternName("");
+        assertNull(config.getIntruderPattern());
+    }
 }

@@ -1,6 +1,7 @@
 package reencrypt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -39,14 +40,25 @@ class AutoLoaderTest {
     }
 
     @Test
-    void anAutoLoadedPatternIsAlwaysEnabled(@TempDir Path dir) throws IOException {
-        Path file = fileWith(dir, ONE_PATTERN);
+    void anAutoLoadedPatternIsEnabledWhenTheFileDoesNotSayOtherwise(@TempDir Path dir) throws IOException {
+        Path file = fileWith(dir, ONE_PATTERN);   // no "enabled" field
         autoLoader.reloadNow(file.toString());
         config.getPatterns().get(0).setEnabled(false); // the user switches it off in the table
 
         autoLoader.reloadNow(file.toString());
 
         assertTrue(config.getPatterns().get(0).isEnabled(), "a watched file is meant to be in force");
+    }
+
+    @Test
+    void anAutoLoadedPatternCanBeParkedByTheFile(@TempDir Path dir) throws IOException {
+        // Only auto-load reads this field; the manual import lets its checkbox decide instead.
+        Path file = fileWith(dir, "{\"reencrypt\":1,\"patterns\":["
+                + "{\"name\":\"a\",\"captureRegex\":\"(.*)\",\"enabled\":false}]}");
+
+        autoLoader.reloadNow(file.toString());
+
+        assertFalse(config.getPatterns().get(0).isEnabled(), "the file asked for it to be off");
     }
 
     @Test

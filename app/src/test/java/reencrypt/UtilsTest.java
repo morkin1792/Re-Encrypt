@@ -72,4 +72,22 @@ public class UtilsTest {
         java.awt.Color blueLower = Utils.hexToColor("#0000ff");
         assertEquals(255, blueLower.getBlue());
     }
+
+    /**
+     * Both spellings are in use on purpose: hexToColor reads 8 digits as Java ARGB, so the CSS-looking
+     * "#f09e2cff" lands on purple (the warning alerts) while the 6-digit "#f09e2c" is the orange kept
+     * for the garbage alert. Pin both so neither drifts into the other.
+     */
+    @org.junit.jupiter.api.Test
+    void eightDigitHexIsArgbAndSixDigitIsRgb() {
+        java.awt.Color purple = Utils.hexToColor("#f09e2cff");
+        org.junit.jupiter.api.Assertions.assertEquals(158, purple.getRed());
+        org.junit.jupiter.api.Assertions.assertEquals(44, purple.getGreen());
+        org.junit.jupiter.api.Assertions.assertEquals(255, purple.getBlue());
+
+        java.awt.Color orange = Utils.hexToColor("#f09e2c");
+        org.junit.jupiter.api.Assertions.assertEquals(240, orange.getRed());
+        org.junit.jupiter.api.Assertions.assertEquals(158, orange.getGreen());
+        org.junit.jupiter.api.Assertions.assertEquals(44, orange.getBlue());
+    }
 }

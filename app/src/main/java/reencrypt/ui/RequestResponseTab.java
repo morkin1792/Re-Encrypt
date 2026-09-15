@@ -181,7 +181,8 @@ public class RequestResponseTab {
     }
 
     public Component uiComponent() {
-        if (reEncrypt.getConfig().getPatternsVersion() != renderedPatternsVersion || editors.size() == 0) {
+        if (shouldRefreshEditors(reEncrypt.getConfig().getPatternsVersion(), renderedPatternsVersion,
+                editors.size(), hasUserEdits())) {
             if (cachedContentFromSetBytes != null) {
                 // Decode again, not just rebuild the tab list: after a pattern is added, edited or
                 // disabled, Burp does not resend the message, so the alerts would keep describing the
@@ -195,20 +196,72 @@ public class RequestResponseTab {
         return panel;
     }
 
+    /**
+     * Whether {@link #uiComponent()} may re-decode the cached message into the editors.
+     *
+     * <p>Burp calls {@code uiComponent()} on every render, and re-decoding goes through
+     * {@code setBytes} -> {@code httpRequestEditor.setRequest(...)}, which replaces the editor's text
+     * with a fresh decrypt of the original <em>and</em> clears Montoya's modified flag. So a refresh
+     * that lands while the user is typing silently reverts their edit and makes Burp send the
+     * untouched message. Unsent edits therefore outrank any refresh: the caller leaves
+     * {@code renderedPatternsVersion} stale and the refresh happens on a later render instead.
+     *
+     * <p>Kept static and free of Burp types so the rule is testable — see
+     * {@code RequestResponseTabRefreshTest}.
+     */
+    static boolean shouldRefreshEditors(int currentPatternsVersion, int renderedPatternsVersion,
+            int editorCount, boolean hasUserEdits) {
+        if (hasUserEdits) {
+            return false;
+        }
+        return currentPatternsVersion != renderedPatternsVersion || editorCount == 0;
+    }
+
+    /**
+     * Whether an editor may re-encrypt its contents back into the message being sent.
+     *
+     * <p>Only an editor that decoded this very message may: the editor list holds one entry per active
+     * pattern regardless of URL, so it also contains patterns belonging to other endpoints, still
+     * holding plaintext from the last message they matched. Their capture regex typically matches here
+     * too — every pattern grabs the same encrypted field — so letting one run would re-encrypt stale
+     * text over the span another editor (or the user) just wrote.
+     *
+     * <p>Kept static and free of Burp types so the rule is testable — see
+     * {@code RequestResponseTabRefreshTest}.
+     */
+    static boolean mayWriteBack(boolean inScopeForUrl, boolean decodedThisMessage) {
+        return inScopeForUrl && decodedThisMessage;
+    }
+
+    private boolean mayWriteBack(RequestResponseEditor editor) {
+        return mayWriteBack(editor.getPattern().isTarget(cachedUrl, api), editor.isDecoded());
+    }
+
+    /** True when any editor holds changes the user typed and has not sent yet. */
+    private boolean hasUserEdits() {
+        for (var editor : editors) {
+            if (editor.isModified()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Alert colors
     private static final Color ALERT_COLOR_ERROR = Utils.hexToColor("#f14c4c");
+    // Deliberately 8-digit: hexToColor reads those as Java ARGB, so this CSS-looking amber comes out
+    // purple. That is the wanted colour for warnings - do not "correct" it to #f09e2c.
     private static final Color ALERT_COLOR_WARNING = Utils.hexToColor("#f09e2cff");
+    // Garbage output is the one warning worth separating from the rest: it means the key or config is
+    // wrong, not that something was merely skipped. 6-digit, so this one really is orange.
+    private static final Color ALERT_COLOR_GARBAGE = Utils.hexToColor("#f09e2c");
 
     public boolean isEnabledFor(HttpRequestResponse requestResponse, boolean isRequest) {
-        // Disable editor for Intruder if auto-encrypt/decrypt is enabled
-        // (the HttpHandler already handles the transformation)
-        if (ToolType.INTRUDER == toolType) {
-            if (isRequest && reEncrypt.getConfig().isIntruderRequestEncryptEnabled()) {
-                return false;
-            }
-            if (!isRequest && reEncrypt.getConfig().isIntruderResponseDecryptEnabled()) {
-                return false;
-            }
+        // Intruder responses are already decrypted in-flight by IntruderHandler, so the editor would
+        // only decrypt plaintext again. Requests are left to the editor.
+        if (ToolType.INTRUDER == toolType && !isRequest
+                && reEncrypt.getConfig().isIntruderResponseDecryptEnabled()) {
+            return false;
         }
 
         HttpRequest request = requestResponse.request();
@@ -275,6 +328,15 @@ public class RequestResponseTab {
         ArrayList<String> claimedBy = new ArrayList<>();
 
         for (var editor : editors) {
+            // The editor list holds one editor per active pattern, whatever the URL — only the tabs are
+            // filtered. A pattern scoped to another endpoint must not decode here, and above all must
+            // not write back in getBytes(): its capture regex can still match this message (they all
+            // capture the same "data" blob), so it would re-encrypt its own stale plaintext over the
+            // span the user just edited.
+            editor.setDecoded(false);
+            if (!editor.getPattern().isTarget(cachedUrl, api)) {
+                continue;
+            }
             try {
                 LogData logData = new LogData(toolType.toolName(), isRequest, cachedMethod, cachedUrl);
                 OperationResult commandOutput = reEncrypt.searchAndDecrypt(editor.getPattern(), content, logData);
@@ -291,11 +353,17 @@ public class RequestResponseTab {
                     commandOutput.getOutputCheckingExitCode();
                 }
                 editor.setBytes(httpService, plainText.getBytes("Windows-1252"));
+                // This editor now holds plaintext that belongs to this message, so it is allowed to
+                // re-encrypt back into it.
+                editor.setDecoded(true);
 
                 // Two patterns capturing the same bytes both try to own that value - they overwrite
                 // each other when re-encrypting and on "Patch proxy". Nothing is blocked, but the user
                 // is told, and told which other pattern it is.
                 String collidesWith = null;
+                // Only patterns in scope reach here, so any collision found is a real one: two patterns
+                // scoped to different endpoints capture the same shape but never run on the same
+                // message, and warning about those would be noise.
                 try {
                     int[] span = ReEncrypt.searchPattern(editor.getPattern().getCaptureRegex(), content);
                     for (int i = 0; i < claimedSpans.size(); i++) {
@@ -308,7 +376,8 @@ public class RequestResponseTab {
                     claimedSpans.add(span);
                     claimedBy.add(editor.getPattern().getName());
                 } catch (PatternException ignored) {
-                    // Cannot happen right after a successful decrypt, and is not worth reporting twice.
+                    // Either out of scope for this URL, or a miss right after a successful decrypt —
+                    // neither is worth reporting twice.
                 }
 
                 if (printEditor != null) {
@@ -347,7 +416,7 @@ public class RequestResponseTab {
                     }
                 } else if (commandOutput.isGarbage()) {
                     editor.setDecodeAlert("[*] Output looks like garbage — likely a wrong key/config; not cached.",
-                            ALERT_COLOR_WARNING);
+                            ALERT_COLOR_GARBAGE);
                 } else if (ReEncrypt.isSlowRegex(editor.getPattern().getCaptureRegex())) {
                     // A regex this slow runs several times per message and will stall every tool that
                     // uses the pattern, so say it where the user can act on it.
@@ -428,6 +497,13 @@ public class RequestResponseTab {
     public byte[] getBytes() {
         byte[] patchedRequest = cachedContentFromSetBytes.clone();
         for (var editor : editors) {
+            // Only an editor that decoded THIS message may write back into it. The list also holds
+            // editors for patterns scoped to other endpoints, still showing plaintext from whatever
+            // message they last decoded; their capture regex usually matches here too, so letting them
+            // run would silently replace the value the user just edited with that stale text.
+            if (!mayWriteBack(editor)) {
+                continue;
+            }
             String plainText = new String(editor.getBytes(), Charset.forName("utf8"));
             try {
                 LogData logData = new LogData(toolType.toolName(), isRequest, cachedMethod, cachedUrl);

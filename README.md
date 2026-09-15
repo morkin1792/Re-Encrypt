@@ -20,11 +20,17 @@ In Repeater, type your payload into the Re:Encrypt custom tab, press **Send**, a
 
 ### ⚡ Intruder
 
-Encrypted endpoints can be fuzzed like any other. In **Intruder Settings**, enable *Auto-encrypt intruder requests* and write your payloads in plaintext, or *Encrypt using payload processor* and add it as a rule under Intruder → Payloads → Payload processing.
+Encrypted endpoints can be fuzzed like any other. Just pick the pattern whose encryption the payloads should use:
 
-![](./images/intruder_settings.png)
+![](./images/intruder_encrypting.png)
+
+Then add it as a rule under Intruder → Payloads → **Payload processing → Add → Invoke Burp extension → Re:Encrypt**:
 
 ![](./images/intruder_payload.png)
+
+Responses can be decrypted automatically, so Burp's **Grep - Match** and **Grep - Extract** run against the plaintext:
+
+![](./images/intruder_decrypting.png)
 
 ### 🔐 Built-in AES and RSA
 
@@ -76,7 +82,7 @@ Every decryption can be written to a log file, so you can grep the whole session
 
 ## 🚀 Quick start
 
-1. Open the **Re:Encrypt** tab → **Capturing + Processing** → **Add**.
+1. Open the **Re:Encrypt** tab → **Adding Patterns** → **Add**.
 2. Name it, and choose whether it applies to **requests** or **responses**.
 3. Say where the ciphertext is: a header, a URL/JSON parameter, the whole body, or your own regex.
 4. Choose a cryptographic algorithm and fill in the fields, or write your **decrypt** and **encrypt** commands.
@@ -97,8 +103,8 @@ Requirements: **Burp Suite v2025.x or later**, **Java 21+**.
 
 ## 🐛 Troubleshooting
 
-* **Re:Encrypt custom tab is not appearing**: Check the pattern's *Target*, and if the pattern is enabled.
-* **Nothing is decrypted**: Look for execution errors. Check if the **Configuration** column of that pattern shows a ⚠ saying something is missing.
+* **Re:Encrypt custom tab is not appearing**: Check the pattern's *Target*, and whether the pattern is enabled.
+* **Nothing is decrypted**: Look for execution errors. Check whether that pattern's **Configuration** column shows a ⚠ saying something is missing.
 * **Command errors**: Logs will appear in one of these depending on the tool and the error: at the top of the Re:Encrypt tab, in Burp's Event log, or in Burp's **Extensions → Output / Errors**.
 * **Odd trailing characters**: One trailing newline is stripped from command output, everything else is kept as-is.
 
@@ -127,6 +133,7 @@ This extension originated from an idea by `Jodson`. Development was made possibl
 - ~~pre defined encryption/scripts~~
 - ~~update README~~
 - ~~export/import configs~~
+- support more unique app encrypting
 - how can MCP work with this extension?
 - improve Crypto Analysis tool
     - prompt
