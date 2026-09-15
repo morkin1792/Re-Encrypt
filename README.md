@@ -133,6 +133,8 @@ This extension originated from an idea by `Jodson`. Development was made possibl
 - ~~pre defined encryption/scripts~~
 - ~~update README~~
 - ~~export/import configs~~
+- how to avoid too file path dependency in exports/imports
+- analyze alternative bapps
 - support more unique app encrypting
 - how can MCP work with this extension?
 - improve Crypto Analysis tool
