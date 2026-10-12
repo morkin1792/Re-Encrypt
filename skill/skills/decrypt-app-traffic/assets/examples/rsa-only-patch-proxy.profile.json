@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.insurer",
+    "artifact": "apps/insurer.apk",
+    "stack": "native (Java) — RSA only, no symmetric layer"
+  },
+  "target": {
+    "hosts": ["api.insurer.example.com"],
+    "urlRegex": "^https://api\\.insurer\\.example\\.com/"
+  },
+  "fields": [
+    {
+      "name": "response-body-rsa",
+      "direction": "response",
+      "location": { "type": "whole_body" },
+      "crypto": {
+        "engine": "rsa",
+        "rsaScheme": "PKCS1",
+        "encoding": "Base64",
+        "privateKey": {
+          "acquisition": "exchange",
+          "source": "file",
+          "value": "keys/mitm-priv.pem",
+          "format": "PEM",
+          "rotates": false,
+          "notes": "our keypair (crypto-cli.py keygen --alg rsa). Its public half was substituted into the client's registration request, so the backend now encrypts every response to us."
+        },
+        "publicKey": {
+          "acquisition": "exchange",
+          "source": "file",
+          "value": "keys/client-original-pub.pem",
+          "format": "PEM",
+          "rotates": false,
+          "notes": "the app's REAL public key, saved from the first registration request — used to re-encrypt each response so the client can still read it. Without this the app breaks."
+        }
+      },
+      "patchProxy": true,
+      "verified": {
+        "decrypt": true,
+        "roundTrip": true,
+        "sample": "evidence/policy-list.txt",
+        "how": "with Patch proxy on, an unmodified session behaved identically to no-proxy; plaintext visible in history for every response, and an edited field was acted on by the app"
+      }
+    }
+  ],
+  "integrity": [],
+  "notes": [
+    "No session key exists: responses are RSA-encrypted directly to the client's registered public key, so the swap must stay in place for the whole session — every response is decrypted and re-encrypted in flight (Patch proxy).",
+    "The one-off swap of the client public key in POST /register is a Burp match-and-replace; nothing else needs an extension.",
+    "Requests are encrypted to the backend's embedded public key — left untouched here. Swap that too (a request pattern with the same shape) if request bodies need editing.",
+    "Chunking matters: bodies longer than keysize-11 bytes arrive as concatenated modulus-sized blocks; crypto-cli.py and the RSA engine both handle that, but the scheme (PKCS1 vs OAEP+digest) must match the app exactly.",
+    "Report the exchange itself: the backend accepts any client public key, so one intercepted registration decrypts every later response for that session."
+  ]
+}

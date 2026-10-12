@@ -88,6 +88,12 @@ Every decryption can be written to a log file, so you can grep the whole session
 4. Choose a cryptographic algorithm and fill in the fields, or write your **decrypt** and **encrypt** commands.
 5. After adding the patterns, go to your requests and watch the magic happen.
 
+## 🤖 Agent skill
+
+[`skill/`](skill/) holds **`decrypt-app-traffic`**, a Claude Code / Codex skill for the step before
+Re:Encrypt: it works out how an app encrypts its traffic, gets the key and emits the matching Re:Encrypt
+setup. See [`skill/README.md`](skill/README.md) to install it.
+
 ## 📦 Install
 
 Requirements: **Burp Suite v2025.x or later**, **Java 21+**.

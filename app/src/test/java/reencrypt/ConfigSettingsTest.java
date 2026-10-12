@@ -28,11 +28,11 @@ class ConfigSettingsTest {
     @Test
     void onlyChangedSettingsAreExported() {
         Config config = new Config(fakePersistence());
-        config.setIntruderPatternName("safra body");
+        config.setIntruderPatternName("api body");
 
         Map<String, Object> exported = config.exportSettings();
         assertEquals(Set.of("intruderPatternName"), exported.keySet());
-        assertEquals("safra body", exported.get("intruderPatternName"));
+        assertEquals("api body", exported.get("intruderPatternName"));
     }
 
     @Test
@@ -52,7 +52,7 @@ class ConfigSettingsTest {
     @Test
     void exportImportRoundTripsThroughAFile() throws Exception {
         Config source = new Config(fakePersistence());
-        source.setIntruderPatternName("safra body");
+        source.setIntruderPatternName("api body");
         String json = ConfigJson.toFile(java.util.List.of(), source.exportSettings(), false);
 
         // The machine-specific log path must not travel with an untouched config.

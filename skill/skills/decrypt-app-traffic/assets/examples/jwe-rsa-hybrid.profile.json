@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.bank",
+    "artifact": "apps/bank.apk",
+    "stack": "native (Java) + WebView login flow"
+  },
+  "target": {
+    "hosts": ["api.bank.example.com"],
+    "urlRegex": "^https://api\\.bank\\.example\\.com/critico"
+  },
+  "fields": [
+    {
+      "name": "jwe-payload",
+      "direction": "request",
+      "location": { "type": "json_param", "input": "payload" },
+      "crypto": {
+        "engine": "aes",
+        "structure": "jwe",
+        "mode": "CTR",
+        "encoding": "Base64URL",
+        "privateKey": {
+          "acquisition": "exchange",
+          "source": "file",
+          "value": "/home/user/eng/keys/mitm-priv.pem",
+          "format": "PEM",
+          "rotates": false,
+          "notes": "our own keypair; the app's embedded server public key was replaced with the matching public half, so the wrapped CEK can be unwrapped locally"
+        }
+      },
+      "patchProxy": true,
+      "verified": {
+        "decrypt": true,
+        "roundTrip": false,
+        "sample": "evidence/jwe-login.txt",
+        "how": "CEK unwrapped with the swapped private key; A256CTR content decrypted to the login JSON"
+      }
+    },
+    {
+      "name": "jwe-response",
+      "direction": "response",
+      "location": { "type": "json_param", "input": "payload" },
+      "crypto": {
+        "engine": "aes",
+        "structure": "jwe",
+        "mode": "CTR",
+        "encoding": "Base64URL",
+        "key": {
+          "acquisition": "runtime",
+          "source": "file",
+          "value": "/tmp/cek.hex",
+          "format": "Hex",
+          "rotates": true,
+          "notes": "responses are encrypted with the same per-message CEK; frida-run.py keeps /tmp/cek.hex current"
+        }
+      },
+      "verified": { "decrypt": true, "roundTrip": false }
+    }
+  ],
+  "notes": [
+    "alg=RSA-OAEP, enc=A256CTR — non-standard content mode, so the JWE tag segment is empty and is reused verbatim on re-encrypt.",
+    "Patch proxy is required: the client encrypts to the real server key, so in-flight decrypt+re-encrypt is the only way to see and edit live traffic.",
+    "The public key is fetched per session from GET /critico/keys — re-run the swap after every re-login."
+  ]
+}

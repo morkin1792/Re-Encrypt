@@ -4,3 +4,5 @@
 # Ignore Gradle build output directory
 build
 *.class
+# Python caches (skill scripts)
+__pycache__/

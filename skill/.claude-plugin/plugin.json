@@ -1,0 +1,9 @@
+{
+  "name": "re-encrypt-skill",
+  "version": "0.1.0",
+  "description": "Step 0 for encrypted app traffic: identify the scheme, get the key, and produce a working Re:Encrypt (or standalone) decrypt/re-encrypt setup.",
+  "author": {
+    "name": "Re:Encrypt"
+  },
+  "skills": "./skills/"
+}

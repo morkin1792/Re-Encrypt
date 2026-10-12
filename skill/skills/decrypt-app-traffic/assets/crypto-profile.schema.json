@@ -1,0 +1,365 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Re-Encrypt/skill/crypto-profile.schema.json",
+  "title": "App traffic crypto profile",
+  "description": "The conclusion of the decrypt-app-traffic skill: how one app protects its HTTP traffic, where the ciphertext sits, and where the key comes from. Written by the agent, consumed by emit-reencrypt-config.py.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "app",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "platform",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "enum": [
+            "android",
+            "ios",
+            "web",
+            "other"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "description": "package name / bundle id"
+        },
+        "version": {
+          "type": "string"
+        },
+        "artifact": {
+          "type": "string",
+          "description": "path to the analyzed apk/ipa"
+        },
+        "stack": {
+          "type": "string",
+          "description": "native | React Native | Flutter | Cordova | \u2026"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "urlRegex": {
+          "type": "string",
+          "description": "restrict the patterns to matching URLs"
+        },
+        "useProjectScope": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/field"
+      }
+    },
+    "integrity": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/integrity"
+      },
+      "description": "MACs / signatures / nonces that must be recomputed after an edit"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "material": {
+      "type": "object",
+      "description": "One piece of key material and how to obtain it at request time. For a renewed session key, set keyLog (and optionally session); `value` should still point at a single-value file if you want the built-in engine to work in-proxy.",
+      "required": [
+        "acquisition"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "acquisition": {
+          "enum": [
+            "static",
+            "derived",
+            "runtime",
+            "exchange",
+            "unknown"
+          ],
+          "description": "static: shipped in the artifact \u00b7 derived: KDF from a shipped secret \u00b7 runtime: captured by instrumentation \u00b7 exchange: negotiated with the server (needs a key swap) \u00b7 unknown: not yet established"
+        },
+        "source": {
+          "enum": [
+            "text",
+            "file",
+            "command"
+          ],
+          "description": "how the proxy should read it: literal, file re-read per operation, or a command run per operation"
+        },
+        "value": {
+          "type": "string",
+          "description": "the literal, the file path, or the command line"
+        },
+        "format": {
+          "enum": [
+            "Hex",
+            "Base64",
+            "Base64URL",
+            "UTF-8",
+            "PEM",
+            "DER"
+          ]
+        },
+        "rotates": {
+          "type": "boolean",
+          "description": "true when the value changes during a session (use source=file/command)"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "keyLog": {
+          "type": "string",
+          "description": "path to an append-only key log ('<ts>: <key> [<session-id>]'), for schemes whose key is renewed; used by the crypto-cli command pair"
+        },
+        "session": {
+          "type": "string",
+          "description": "session id to resolve in keyLog (omit to use the newest key)"
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": [
+        "name",
+        "direction",
+        "location",
+        "crypto"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "request",
+            "response"
+          ]
+        },
+        "location": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "header",
+                "url_param",
+                "json_param",
+                "whole_body",
+                "custom_regex"
+              ]
+            },
+            "input": {
+              "type": "string",
+              "description": "header/param name, or the regex for custom_regex"
+            },
+            "regex": {
+              "type": "string",
+              "description": "explicit capture regex; group 1 MUST be the ciphertext"
+            }
+          }
+        },
+        "crypto": {
+          "type": "object",
+          "required": [
+            "engine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "enum": [
+                "aes",
+                "rsa",
+                "custom"
+              ]
+            },
+            "mode": {
+              "enum": [
+                "CBC",
+                "ECB",
+                "CTR",
+                "GCM",
+                "CFB",
+                "OFB"
+              ]
+            },
+            "structure": {
+              "enum": [
+                "raw",
+                "iv_ct",
+                "iv_ct_tag",
+                "openssl",
+                "jwe"
+              ]
+            },
+            "encoding": {
+              "enum": [
+                "Base64",
+                "Base64URL",
+                "Hex",
+                "Raw"
+              ]
+            },
+            "padding": {
+              "enum": [
+                "PKCS5Padding",
+                "NoPadding",
+                "ISO10126Padding"
+              ]
+            },
+            "ivLength": {
+              "type": "integer"
+            },
+            "gcmTagLength": {
+              "type": "integer",
+              "enum": [
+                96,
+                104,
+                112,
+                120,
+                128
+              ]
+            },
+            "keyDerivation": {
+              "enum": [
+                "evp_md5",
+                "evp_sha256",
+                "pbkdf2"
+              ]
+            },
+            "pbkdf2Iterations": {
+              "type": "integer"
+            },
+            "rsaScheme": {
+              "enum": [
+                "PKCS1",
+                "OAEP-SHA1",
+                "OAEP-SHA256"
+              ]
+            },
+            "key": {
+              "$ref": "#/$defs/material"
+            },
+            "iv": {
+              "$ref": "#/$defs/material"
+            },
+            "publicKey": {
+              "$ref": "#/$defs/material"
+            },
+            "privateKey": {
+              "$ref": "#/$defs/material"
+            }
+          }
+        },
+        "customCommand": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "decrypt": {
+              "type": "string"
+            },
+            "encrypt": {
+              "type": "string"
+            }
+          }
+        },
+        "patchProxy": {
+          "type": "boolean",
+          "description": "decrypt+re-encrypt in flight (needed for the key-swap MITM)"
+        },
+        "useCache": {
+          "type": "boolean",
+          "default": true
+        },
+        "saveToLog": {
+          "type": "boolean",
+          "default": true
+        },
+        "verified": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "decrypt": {
+              "type": "boolean",
+              "description": "a captured sample decrypted to recognisable plaintext"
+            },
+            "roundTrip": {
+              "type": "boolean",
+              "description": "re-encrypted payload was accepted by the server"
+            },
+            "sample": {
+              "type": "string",
+              "description": "path to the evidence file"
+            },
+            "how": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "field"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "header/param carrying the MAC or nonce"
+        },
+        "algorithm": {
+          "type": "string",
+          "description": "e.g. HMAC-SHA256, SHA256, RSA-SHA256"
+        },
+        "signedInput": {
+          "type": "string",
+          "description": "exactly what goes into the MAC, in order"
+        },
+        "key": {
+          "$ref": "#/$defs/material"
+        },
+        "handled": {
+          "type": "boolean",
+          "description": "true once your re-encrypt path recomputes it"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

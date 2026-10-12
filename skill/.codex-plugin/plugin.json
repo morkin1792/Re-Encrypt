@@ -1,0 +1,18 @@
+{
+  "name": "re-encrypt-skill",
+  "version": "0.1.0",
+  "description": "Identify how an app encrypts its HTTP traffic, obtain the key, and generate the Re:Encrypt or standalone decrypt/re-encrypt setup.",
+  "author": {
+    "name": "Re:Encrypt"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Re:Encrypt Skill",
+    "shortDescription": "Decrypt an app's encrypted HTTP traffic.",
+    "longDescription": "Analyzes APK/IPA artifacts and captured traffic to determine the encryption scheme and key source, proves it by decrypting a real sample, and emits a Re:Encrypt configuration plus a runbook. Includes stdlib-only triage, ciphertext analysis, an AES/RSA/JWE CLI worker, and frida hooks for runtime key capture.",
+    "developerName": "Re:Encrypt",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the decrypt-app-traffic skill on the app artifacts in this directory."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.securebank",
+    "version": "3.4.1",
+    "artifact": "apps/securebank.apk",
+    "stack": "native (Kotlin) + OkHttp"
+  },
+  "target": {
+    "hosts": ["api.securebank.example.com"],
+    "urlRegex": "^https://api\\.securebank\\.example\\.com/"
+  },
+  "fields": [
+    {
+      "name": "body-data-aes-cbc",
+      "direction": "request",
+      "location": { "type": "json_param", "input": "data" },
+      "crypto": {
+        "engine": "aes",
+        "mode": "CBC",
+        "structure": "iv_ct",
+        "encoding": "Base64",
+        "padding": "PKCS5Padding",
+        "ivLength": 16,
+        "key": {
+          "acquisition": "static",
+          "source": "text",
+          "value": "0123456789abcdef0123456789abcdef",
+          "format": "Hex",
+          "rotates": false,
+          "notes": "hardcoded literal in com.example.securebank.net.Crypto; confirmed by decrypting a captured request"
+        }
+      },
+      "verified": {
+        "decrypt": true,
+        "roundTrip": true,
+        "sample": "evidence/payments-sample.txt",
+        "how": "crypto-cli.py dec on the POST /v3/payments body returned the expected JSON; re-encrypted unchanged body accepted with an identical response"
+      }
+    },
+    {
+      "name": "response-data-aes-cbc",
+      "direction": "response",
+      "location": { "type": "json_param", "input": "data" },
+      "crypto": {
+        "engine": "aes",
+        "mode": "CBC",
+        "structure": "iv_ct",
+        "encoding": "Base64",
+        "padding": "PKCS5Padding",
+        "ivLength": 16,
+        "key": {
+          "acquisition": "static",
+          "source": "text",
+          "value": "0123456789abcdef0123456789abcdef",
+          "format": "Hex",
+          "rotates": false
+        }
+      },
+      "verified": { "decrypt": true, "roundTrip": true }
+    }
+  ],
+  "notes": [
+    "Same key both directions; responses reuse the request key.",
+    "The app also ships an unused RSA public key in assets/keys/server_pub.pem — not on this path."
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.hybridbank",
+    "version": "5.22.1",
+    "artifact": "apps/hybridbank.apk",
+    "stack": "hybrid — Angular SPA in a WebView, crypto in assets/www JS (node-forge + JSEncrypt)"
+  },
+  "target": {
+    "hosts": ["apiext.example.com"],
+    "urlRegex": "^https://apiext\\.example\\.com/app/"
+  },
+  "fields": [
+    {
+      "name": "request-payload",
+      "direction": "request",
+      "location": { "type": "json_param", "input": "data" },
+      "crypto": {
+        "engine": "aes",
+        "structure": "jwe",
+        "mode": "CTR",
+        "encoding": "Base64",
+        "key": {
+          "acquisition": "exchange",
+          "source": "file",
+          "value": "/tmp/hybridbank-latest.key",
+          "format": "UTF-8",
+          "rotates": true,
+          "keyLog": "workspace/proj/keys/key",
+          "notes": "32 printable ASCII chars used as raw UTF-8 bytes (AES-256). Delivered by the two-step /app/init handshake, encrypted to the client's per-session RSA public key; the proxy-side patcher swaps that key for ours, decrypts the blob, appends '<ts>: <key> <session-id>' to the key log and re-encrypts to the app's real key. Renewed at 80% of the advertised exp, so one session owns several keys."
+        }
+      },
+      "verified": {
+        "decrypt": true,
+        "roundTrip": true,
+        "sample": "evidence/journey-start.txt",
+        "how": "captured body decrypted with the session's key; a re-encrypted body with a fresh random IV was accepted (200)"
+      }
+    },
+    {
+      "name": "response-payload",
+      "direction": "response",
+      "location": { "type": "whole_body" },
+      "crypto": {
+        "engine": "aes",
+        "structure": "jwe",
+        "mode": "CTR",
+        "encoding": "Base64",
+        "key": {
+          "acquisition": "exchange",
+          "source": "file",
+          "value": "/tmp/hybridbank-latest.key",
+          "format": "UTF-8",
+          "rotates": true,
+          "keyLog": "workspace/proj/keys/key",
+          "notes": "same key as the request direction; the response body is a bare JSON string holding the token"
+        }
+      },
+      "verified": { "decrypt": true, "roundTrip": false }
+    }
+  ],
+  "notes": [
+    "Non-standard JOSE: 5 segments with an EMPTY wrapped-key segment (the key is not in the message) and a single space as the tag segment — no authentication tag, so edits are accepted and the header's alg is cosmetic.",
+    "Plaintext is sometimes zlib-compressed as {\"data\":\"<base64(deflate(json))>\"} — crypto-cli.py inflates it automatically and --deflate produces it.",
+    "A second crypto model exists in the bundle (X25519 + HKDF → AES-GCM, header alg=X25519) behind a local config flag. If a captured header ever shows X25519, this whole profile is wrong — re-do steps 3–5.",
+    "The bundle also ships a hardcoded RSA-1024 keypair used by a separate helper (not the session crypto) — every install shares it; track the call sites and report it.",
+    "The proxy patcher only touches PROXY traffic: a handshake replayed from Repeater/MCP yields no key. Mint keys by restarting the app through the proxy, or run the handshake from a script.",
+    "Replays need HTTP/2 and the client's required headers (accept-language, app/session/correlation ids) — otherwise a transport rejection looks like a crypto failure."
+  ]
+}

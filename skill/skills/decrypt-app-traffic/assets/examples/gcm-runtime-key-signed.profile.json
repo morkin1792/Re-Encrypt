@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.wallet",
+    "artifact": "apps/wallet.apk",
+    "stack": "Flutter (crypto in libapp.so, keys via AndroidKeyStore)"
+  },
+  "target": {
+    "useProjectScope": true,
+    "hosts": ["api.wallet.example.com"]
+  },
+  "fields": [
+    {
+      "name": "whole-body-gcm",
+      "direction": "request",
+      "location": { "type": "whole_body" },
+      "crypto": {
+        "engine": "aes",
+        "mode": "GCM",
+        "structure": "iv_ct_tag",
+        "encoding": "Base64",
+        "ivLength": 12,
+        "gcmTagLength": 128,
+        "key": {
+          "acquisition": "runtime",
+          "source": "file",
+          "value": "/tmp/wallet-aes.key",
+          "format": "Hex",
+          "rotates": true,
+          "notes": "session key derived in native code and held in AndroidKeyStore — never a Java literal. Captured from EVP_EncryptInit_ex; frida-run.py --key-file rewrites this file on every renewal"
+        }
+      },
+      "useCache": true,
+      "verified": {
+        "decrypt": true,
+        "roundTrip": false,
+        "sample": "evidence/wallet-transfer.txt",
+        "how": "GCM tag verified with the captured key, so the key is certain"
+      }
+    }
+  ],
+  "integrity": [
+    {
+      "field": "X-Body-Signature",
+      "algorithm": "HMAC-SHA256",
+      "signedInput": "hex(HMAC(mac_key, method + '\\n' + path + '\\n' + X-Timestamp + '\\n' + ciphertext))",
+      "key": {
+        "acquisition": "runtime",
+        "source": "file",
+        "value": "/tmp/wallet-mac.key",
+        "format": "Hex",
+        "rotates": true,
+        "notes": "captured from Mac.init; distinct from the AES key"
+      },
+      "handled": false,
+      "notes": "until the encrypt path recomputes this header, every modified request returns 401"
+    }
+  ],
+  "notes": [
+    "Key renews roughly every 15 minutes and on every foreground — a literal key in the UI would go stale mid-test.",
+    "GCM authenticates the ciphertext, so a wrong key fails loudly: useful for confirming a capture instantly."
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1",
+  "app": {
+    "platform": "android",
+    "id": "com.example.shop",
+    "artifact": "apps/shop.apk",
+    "stack": "React Native — crypto in assets/index.android.bundle (CryptoJS)"
+  },
+  "target": {
+    "hosts": ["api.shop.example.com"],
+    "urlRegex": "^https://api\\.shop\\.example\\.com/"
+  },
+  "fields": [
+    {
+      "name": "request-body",
+      "direction": "request",
+      "location": { "type": "json_param", "input": "request" },
+      "crypto": {
+        "engine": "aes",
+        "mode": "CBC",
+        "structure": "openssl",
+        "encoding": "Base64",
+        "padding": "PKCS5Padding",
+        "keyDerivation": "evp_md5",
+        "key": {
+          "acquisition": "static",
+          "source": "text",
+          "value": "7x!A%D*G-KaPdSgV",
+          "format": "UTF-8",
+          "rotates": false,
+          "notes": "hardcoded literal passed to CryptoJS.AES.encrypt as a STRING — so it is a passphrase, not a key: CryptoJS derives a 256-bit key + IV with EVP_BytesToKey(MD5) and an 8-byte random salt, and emits the OpenSSL envelope (wire values start 'U2FsdGVkX1'). Feeding these 16 bytes as a raw key yields garbage."
+        }
+      },
+      "verified": {
+        "decrypt": true,
+        "roundTrip": true,
+        "sample": "evidence/checkout-sample.txt",
+        "how": "crypto-cli.py dec --structure openssl --kdf evp-md5 --key utf8:<literal> returned the checkout JSON; a re-encrypted body was accepted (200). Cross-checked against the app's own library via scripts/oracle/js-crypto-oracle.js."
+      }
+    },
+    {
+      "name": "response-body",
+      "direction": "response",
+      "location": { "type": "whole_body" },
+      "crypto": {
+        "engine": "aes",
+        "mode": "CBC",
+        "structure": "openssl",
+        "encoding": "Base64",
+        "padding": "PKCS5Padding",
+        "keyDerivation": "evp_md5",
+        "key": {
+          "acquisition": "static",
+          "source": "text",
+          "value": "7x!A%D*G-KaPdSgV",
+          "format": "UTF-8",
+          "rotates": false
+        }
+      },
+      "verified": { "decrypt": true, "roundTrip": false }
+    }
+  ],
+  "notes": [
+    "One key for every install and every user — the encryption adds no confidentiality against anyone holding the APK. Report it.",
+    "A second, legacy path in the same bundle uses a parsed (raw) key with a hardcoded IV: CryptoJS.AES.encrypt(data, enc.Utf8.parse('0123456789abcdef'), {iv: enc.Hex.parse('0011..ff')}) → structure=raw, mode=CBC, key format UTF-8 (AES-128), IV from the literal. Check which endpoints still use it.",
+    "The request wrapper is {\"request\":\"<blob>\"}; responses are the bare blob, hence whole_body for that direction.",
+    "Salt is fresh per message, so identical plaintexts produce different ciphertexts — that is the library, not a design decision by the app."
+  ]
+}

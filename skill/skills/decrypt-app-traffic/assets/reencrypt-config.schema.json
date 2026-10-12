@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Re-Encrypt/skill/reencrypt-config.schema.json",
+  "title": "Re:Encrypt settings export/import (proposed)",
+  "description": "PROPOSED import format for the Re:Encrypt Settings tab. The extension does not read this file yet — every field maps 1:1 onto reencrypt.CapturePattern / reencrypt.Config, so an importer is a field-by-field copy. Until it exists, emit-reencrypt-config.py also prints a runbook for entering the same values in the UI.",
+  "type": "object",
+  "required": ["formatVersion", "requestPatterns", "responsePatterns"],
+  "additionalProperties": false,
+  "properties": {
+    "formatVersion": { "const": 1 },
+    "generatedBy": { "type": "string" },
+    "note": { "type": "string" },
+    "requestPatterns": { "type": "array", "items": { "$ref": "#/$defs/pattern" } },
+    "responsePatterns": { "type": "array", "items": { "$ref": "#/$defs/pattern" } },
+    "settings": {
+      "type": "object",
+      "description": "maps to reencrypt.Config preferences",
+      "additionalProperties": false,
+      "properties": {
+        "logFilePath": { "type": "string" },
+        "enableRequestPrintEditor": { "type": "boolean" },
+        "enableResponsePrintEditor": { "type": "boolean" },
+        "escapeRequestDoubleQuotes": { "type": "boolean" },
+        "escapeResponseDoubleQuotes": { "type": "boolean" },
+        "enableIntruderRequestEncrypt": { "type": "boolean" },
+        "enableIntruderResponseDecrypt": { "type": "boolean" },
+        "enableIntruderPayloadProcessor": { "type": "boolean" },
+        "repeaterEncryptOnlyOnModification": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "pattern": {
+      "type": "object",
+      "description": "one reencrypt.CapturePattern",
+      "required": ["name", "patternType", "captureRegex"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "patternType": {
+          "enum": ["Header", "Parameter (URL-encoded)", "Parameter (JSON)", "Whole Body", "Custom Regex"],
+          "description": "PatternType display name"
+        },
+        "patternInput": { "type": "string", "description": "header/param name, or the regex for Custom Regex" },
+        "captureRegex": {
+          "type": "string",
+          "description": "the effective regex; capturing GROUP 1 must be exactly the ciphertext span"
+        },
+        "urlTargetRegex": { "type": "string", "description": "empty = every URL" },
+        "useProjectScope": { "type": "boolean", "default": false },
+        "patchProxy": { "type": "boolean", "default": false },
+        "useCacheSystem": { "type": "boolean", "default": true },
+        "saveToLog": { "type": "boolean", "default": true },
+        "detectGarbage": { "type": "boolean", "default": true },
+        "engineId": {
+          "type": ["string", "null"],
+          "enum": ["aes", "rsa", null],
+          "description": "null = custom command mode (use decCommand/encCommand)"
+        },
+        "engineParams": {
+          "type": "object",
+          "description": "flat string map, exactly as reencrypt.engine.* reads it",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": {
+            "enum": [
+              "mode", "ciphertextStructure", "padding", "encoding", "mirrorEncoding",
+              "inputEncoding", "outputEncoding", "ivLength", "gcmTagLength",
+              "key", "keyFormat", "keySource", "keyReloadFile",
+              "iv", "ivFormat", "ivSource", "ivReloadFile",
+              "keyDerivation", "pbkdf2Iterations", "opensslKeyLength",
+              "publicKey", "publicKeySource", "publicKeyFileFormat", "publicKeyReloadFile",
+              "privateKey", "privateKeySource", "privateKeyFileFormat", "privateKeyReloadFile",
+              "encryptionScheme", "oaepDigest",
+              "jweHeader", "jweEncryptedKey", "jweTag", "jweEncoding", "jwePadded"
+            ]
+          }
+        },
+        "decCommand": { "type": "string", "description": "custom command mode: {DATA} / {FILE} placeholders" },
+        "encCommand": { "type": "string" }
+      }
+    }
+  }
+}
